@@ -9,13 +9,8 @@ Windows 兼容性方案:
 - 自定义标题栏 + 拖拽
 """
 
-from PyQt6.QtCore import (
-    Qt,
-    QPropertyAnimation,
-    QEasingCurve,
-    pyqtSignal,
-)
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter
 from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -25,14 +20,13 @@ from PyQt6.QtWidgets import (
     QFrame,
 )
 
-from voicecalendar.config import WindowConfig, AnimationConfig
+from voicecalendar.config import WindowConfig
 from voicecalendar.core.theme import ThemeManager, ThemeMode
 from voicecalendar.core.resources import ResourceLoader
 from voicecalendar.ui.titlebar import TitleBar
 from voicecalendar.ui.components.toast import ToastManager, ToastType
 
 win_cfg = WindowConfig()
-anim_cfg = AnimationConfig()
 
 
 class CentralWidget(QWidget):
@@ -236,8 +230,6 @@ class MainWindow(QMainWindow):
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
         """绘制窗口背景。"""
-        from PyQt6.QtGui import QPainter
-
         painter = QPainter(self)
         theme_mgr = ThemeManager.instance()
         bg = QColor(26, 29, 35) if theme_mgr.is_dark() else QColor(255, 255, 255)
@@ -251,17 +243,9 @@ class MainWindow(QMainWindow):
         super().changeEvent(event)
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
-        event.ignore()
-        fade_out = QPropertyAnimation(self, b"windowOpacity")
-        fade_out.setDuration(win_cfg.WINDOW_CLOSE_DURATION)
-        fade_out.setStartValue(self.windowOpacity())
-        fade_out.setEndValue(0.0)
-        fade_out.setEasingCurve(QEasingCurve.Type.InCubic)
-        fade_out.finished.connect(self._close_window)
-        fade_out.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
-
-    def _close_window(self) -> None:
-        self.close()
+        # 直接接受关闭事件，避免动画导致的递归调用
+        event.accept()
+        super().closeEvent(event)
 
 
 def tr(text: str) -> str:
