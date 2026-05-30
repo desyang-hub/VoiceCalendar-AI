@@ -55,6 +55,46 @@ Sidebar {
     border-right: 1px solid #EEF0F4;
 }
 
+/* ── 导航按钮 ── */
+
+QPushButton#NavButton {
+    background-color: transparent;
+    border: none;
+    border-radius: 10px;
+    font-size: 20px;
+    padding: 0;
+}
+
+QPushButton#NavButton:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+QPushButton#NavButton:checked {
+    background-color: rgba(74, 108, 247, 0.12);
+}
+
+/* ── 语音交互区 ── */
+
+QFrame#VoiceSection {
+    background-color: #F7F8FA;
+    border-radius: 16px;
+    border: 1px solid #E5E7EB;
+}
+
+/* ── 日程列表区 ── */
+
+QFrame#CalendarSection {
+    background-color: transparent;
+}
+
+/* ── 识别结果标签 ── */
+
+QLabel#ResultLabel {
+    color: #5F6B7A;
+    font-size: 13px;
+    background-color: transparent;
+}
+
 /* ── Toast 通知 ── */
 
 ToastWidget {

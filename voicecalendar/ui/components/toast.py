@@ -18,6 +18,7 @@ from PyQt6.QtCore import (
     QPropertyAnimation,
     QEasingCurve,
     pyqtSignal,
+    QParallelAnimationGroup,
 )
 from PyQt6.QtGui import QColor, QPainter, QPainterPath
 from PyQt6.QtWidgets import QWidget, QGraphicsDropShadowEffect, QHBoxLayout, QLabel
@@ -141,18 +142,29 @@ class ToastWidget(QWidget):
         super().leaveEvent(event)
 
     def _dismiss(self) -> None:
-        """执行滑出动画。"""
+        """执行滑出 + 淡出动画。"""
         self.setEnabled(False)
 
-        animation = QPropertyAnimation(self, b"pos")
-        animation.setDuration(anim_cfg.TOAST_DISAPPEAR)
-        animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        animation.setStartValue(self.pos())
+        # 滑出动画
+        slide_anim = QPropertyAnimation(self, b"pos")
+        slide_anim.setDuration(anim_cfg.TOAST_DISAPPEAR)
+        slide_anim.setEasingCurve(QEasingCurve.Type.InCubic)
+        slide_anim.setStartValue(self.pos())
+        slide_anim.setEndValue(self.pos() + QPoint(60, 0))
 
-        end_pos = self.pos() + QPoint(60, 0)
-        animation.setEndValue(end_pos)
-        animation.finished.connect(self._on_dismissed)
-        animation.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+        # 淡出动画
+        fade_anim = QPropertyAnimation(self, b"windowOpacity")
+        fade_anim.setDuration(anim_cfg.TOAST_DISAPPEAR)
+        fade_anim.setEasingCurve(QEasingCurve.Type.Linear)
+        fade_anim.setStartValue(1.0)
+        fade_anim.setEndValue(0.0)
+
+        # 并行执行
+        group = QParallelAnimationGroup(self)
+        group.addAnimation(slide_anim)
+        group.addAnimation(fade_anim)
+        group.finished.connect(self._on_dismissed)
+        group.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
 
     def _on_dismissed(self) -> None:
         self.dismissed.emit(self)
@@ -216,15 +228,30 @@ class ToastManager:
         self._toasts.append(toast)
         toast.dismissed.connect(self._on_dismissed)
 
-        # 入场动画
+        # 入场动画 — 滑入 + 淡入同时进行
         toast.show()
+        toast.setWindowOpacity(0.0)
+
+        # 滑入动画
         start_pos = toast.pos() + QPoint(60, 0)
-        animation = QPropertyAnimation(toast, b"pos")
-        animation.setDuration(anim_cfg.TOAST_APPEAR)
-        animation.setEasingCurve(QEasingCurve.Type.OutBack)
-        animation.setStartValue(start_pos)
-        animation.setEndValue(toast.pos())
-        animation.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+        slide_anim = QPropertyAnimation(toast, b"pos")
+        slide_anim.setDuration(anim_cfg.TOAST_APPEAR)
+        slide_anim.setEasingCurve(QEasingCurve.Type.OutBack)
+        slide_anim.setStartValue(start_pos)
+        slide_anim.setEndValue(toast.pos())
+
+        # 淡入动画
+        fade_anim = QPropertyAnimation(toast, b"windowOpacity")
+        fade_anim.setDuration(anim_cfg.TOAST_APPEAR)
+        fade_anim.setEasingCurve(QEasingCurve.Type.Linear)
+        fade_anim.setStartValue(0.0)
+        fade_anim.setEndValue(1.0)
+
+        # 并行执行
+        group = QParallelAnimationGroup(toast)
+        group.addAnimation(slide_anim)
+        group.addAnimation(fade_anim)
+        group.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
 
     def _on_dismissed(self, toast: ToastWidget) -> None:
         """Toast 被移除后的回调。"""
