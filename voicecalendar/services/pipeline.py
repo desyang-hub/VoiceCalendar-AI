@@ -3,8 +3,10 @@ from __future__ import annotations
 """语音日历处理流水线 (Pipeline)。
 
 串联 Audio → ASR → NLU → Calendar 四个服务。
+每个阶段都有独立的错误处理和优雅降级。
 """
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -15,6 +17,17 @@ from voicecalendar.services.audio_capture import AudioCapture
 from voicecalendar.services.asr_service import ASRService, TranscriptionResult
 from voicecalendar.services.nlu_parser import NLUParser
 from voicecalendar.services.calendar_backend import CalendarBackend, CalendarOperationResult
+from voicecalendar.services.errors import (
+    VoiceCalendarError,
+    ASRError,
+    NLUErrors,
+    CalendarError,
+    NetworkError,
+    RequestTimeout,
+    get_user_message,
+)
+
+logger = logging.getLogger("voicecalendar")
 
 
 class PipelineStatus(Enum):
@@ -90,6 +103,8 @@ class VoiceCalendarPipeline:
     def process_voice(self, text: str = "", use_recording: bool = False) -> PipelineResult:
         """处理语音指令 (完整流程)。
 
+        每个阶段独立处理错误，一个阶段失败不影响其他阶段的错误报告。
+
         Args:
             text: 文本输入 (非空则跳过录音)
             use_recording: True=先录音再识别
@@ -105,14 +120,13 @@ class VoiceCalendarPipeline:
             try:
                 self._status = PipelineStatus.RECORDING
                 self.audio.start()
-                # 等待外部调用 stop_recording()
-                # 此处不阻塞
                 return PipelineResult(
                     success=False,
                     status=PipelineStatus.RECORDING,
                     error_message="等待录音结束",
                 )
             except Exception as e:
+                logger.error("录音失败: %s", e)
                 return PipelineResult(
                     success=False,
                     status=PipelineStatus.ERROR,
@@ -126,25 +140,73 @@ class VoiceCalendarPipeline:
         # 2. 语音识别
         self._status = PipelineStatus.TRANSCRIBING
         if not text and audio_path:
-            result = self.asr.transcribe(audio_path)
-            if not result.success:
+            try:
+                result = self.asr.transcribe(audio_path)
+                if not result.success:
+                    logger.warning("ASR 识别失败: %s", result.error_message)
+                    return PipelineResult(
+                        success=False,
+                        status=PipelineStatus.ERROR,
+                        error_message=result.error_message,
+                    )
+                text = result.text
+            except (NetworkError, RequestTimeout) as e:
+                logger.error("ASR 网络错误: %s", e)
                 return PipelineResult(
                     success=False,
                     status=PipelineStatus.ERROR,
-                    error_message=result.error_message,
+                    error_message=get_user_message(e),
                 )
-            text = result.text
+            except ASRError as e:
+                logger.error("ASR 错误: %s", e)
+                return PipelineResult(
+                    success=False,
+                    status=PipelineStatus.ERROR,
+                    error_message=get_user_message(e),
+                )
+            except Exception as e:
+                logger.error("ASR 未知错误: %s", e)
+                return PipelineResult(
+                    success=False,
+                    status=PipelineStatus.ERROR,
+                    error_message=f"语音识别失败: {e}",
+                )
 
         if not text.strip():
             return PipelineResult(
                 success=False,
                 status=PipelineStatus.ERROR,
-                error_message="未识别到有效文本",
+                error_message="未识别到有效语音内容，请重新录制",
             )
 
         # 3. 意图解析
         self._status = PipelineStatus.PARSING
-        intent = self.nlu.parse(text)
+        try:
+            intent = self.nlu.parse(text)
+        except (NetworkError, RequestTimeout) as e:
+            logger.error("NLU 网络错误: %s", e)
+            return PipelineResult(
+                success=False,
+                status=PipelineStatus.ERROR,
+                error_message=get_user_message(e),
+                raw_text=text,
+            )
+        except NLUErrors as e:
+            logger.error("NLU 错误: %s", e)
+            return PipelineResult(
+                success=False,
+                status=PipelineStatus.ERROR,
+                error_message=get_user_message(e),
+                raw_text=text,
+            )
+        except Exception as e:
+            logger.error("NLU 未知错误: %s", e)
+            return PipelineResult(
+                success=False,
+                status=PipelineStatus.ERROR,
+                error_message=f"指令解析失败: {e}",
+                raw_text=text,
+            )
 
         if intent.action == ParseIntent.Action.UNKNOWN:
             return PipelineResult(
@@ -152,17 +214,36 @@ class VoiceCalendarPipeline:
                 status=PipelineStatus.DONE,
                 raw_text=text,
                 intent=intent,
-                error_message="无法识别意图",
+                error_message="无法识别意图，请换一种说法",
             )
 
         # 4. 日历操作
         self._status = PipelineStatus.SAVING
         calendar_result: Optional[CalendarOperationResult] = None
 
-        if intent.is_add and intent.event:
-            calendar_result = self.calendar.add_event(intent.event)
-        elif intent.is_delete:
-            calendar_result = self.calendar.delete_event(intent.delete_keyword or text)
+        try:
+            if intent.is_add and intent.event:
+                calendar_result = self.calendar.add_event(intent.event)
+            elif intent.is_delete:
+                calendar_result = self.calendar.delete_event(intent.delete_keyword or text)
+        except CalendarError as e:
+            logger.error("日历操作失败: %s", e)
+            return PipelineResult(
+                success=False,
+                status=PipelineStatus.ERROR,
+                error_message=get_user_message(e),
+                raw_text=text,
+                intent=intent,
+            )
+        except Exception as e:
+            logger.error("日历操作未知错误: %s", e)
+            return PipelineResult(
+                success=False,
+                status=PipelineStatus.ERROR,
+                error_message=f"日历保存失败: {e}",
+                raw_text=text,
+                intent=intent,
+            )
 
         # 5. 完成
         self._status = PipelineStatus.DONE
