@@ -66,16 +66,21 @@ def main() -> None:
     combined = loader.get_combined_style(dynamic_colors)
     app.setStyleSheet(combined)
 
-    # 创建并显示主窗口
+    # 创建并居中显示主窗口
     window = MainWindow()
-    window.show()
 
-    # 居中显示
+    # 先隐藏再居中，避免闪烁
+    window.hide()
     screen = app.primaryScreen().geometry()
     window_geometry = window.frameGeometry()
     center_point = screen.center()
     window_geometry.moveCenter(center_point)
     window.move(window_geometry.topLeft())
+
+    # 显示并激活窗口 (Windows FramelessWindowHint 必须显式激活)
+    window.show()
+    window.raise_()
+    window.activateWindow()
 
     # 运行事件循环
     sys.exit(app.exec())
