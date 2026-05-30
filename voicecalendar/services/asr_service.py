@@ -171,7 +171,14 @@ class ASRService:
 
             # 尝试解析 HTTP 状态码
             if hasattr(e, "status_code"):
-                http_error = parse_http_error(e.status_code, str(e))
+                code = e.status_code
+                if code == 404:
+                    raise ASRError(
+                        f"语音识别 API 不可用 (404)。"
+                        f"当前模型 '{self._model}' 可能不支持标准 Whisper API。"
+                        f"请确认模型名称或改用 OpenAI whisper-1。"
+                    )
+                http_error = parse_http_error(code, str(e))
                 raise http_error
 
             raise ASRError(f"语音识别失败: {e}")

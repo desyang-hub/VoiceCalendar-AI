@@ -14,12 +14,13 @@ from PyQt6.QtCore import (
     QTimer,
     QThread,
     pyqtSignal,
+    pyqtSlot,
     QPointF,
     QPoint,
     QPropertyAnimation,
     QEasingCurve,
 )
-from PyQt6.QtGui import QColor, QPainter, QMouseEvent, QBrush
+from PyQt6.QtGui import QColor, QPainter, QMouseEvent, QBrush, QIcon, QPixmap, QPixmapCache, QAction
 from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -33,6 +34,14 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QComboBox,
     QCheckBox,
+    QSystemTrayIcon,
+    QMenu,
+    QDialog,
+    QFormLayout,
+    QTimeEdit,
+    QDateEdit,
+    QTextEdit,
+    QSpinBox,
 )
 
 from voicecalendar.config import WindowConfig
@@ -46,6 +55,7 @@ from voicecalendar.models.event import CalendarEvent
 from voicecalendar.services.pipeline import VoiceCalendarPipeline, MockPipeline
 from voicecalendar.services.audio_capture import AudioCapture
 from voicecalendar.services.errors import get_user_message
+from voicecalendar.services.calendar_backend import CalendarBackend
 from voicecalendar.core import settings as settings_module
 
 win_cfg = WindowConfig()
@@ -131,16 +141,15 @@ class RecordButton(QWidget):
 
 
 class EventCard(QFrame):
-    """日程事件卡片 — 左侧颜色指示条 + 时间 + 标题 + 日期标签。"""
+    """日程事件卡片 — 左侧颜色指示条 + 时间 + 标题 + 操作按钮。"""
 
-    # 事件类型配色
+    # 信号：编辑 / 删除
+    edit_clicked: pyqtSignal = pyqtSignal(object)
+    delete_clicked: pyqtSignal = pyqtSignal(object)
+
     EVENT_COLORS = [
-        "#6B8AFF",  # 蓝
-        "#3DDC84",  # 绿
-        "#FFB340",  # 橙
-        "#FF6B6B",  # 红
-        "#7DD3FC",  # 青
-        "#BB86FC",  # 紫
+        "#6B8AFF", "#3DDC84", "#FFB340",
+        "#FF6B6B", "#7DD3FC", "#BB86FC",
     ]
 
     def __init__(self, event: CalendarEvent, parent: QWidget | None = None) -> None:
@@ -165,16 +174,14 @@ class EventCard(QFrame):
         layout.setContentsMargins(4, 12, 16, 12)
         layout.setSpacing(14)
 
-        # 颜色指示条（左侧 3px 圆角条）
+        # ── 颜色指示条 ──
         color = self.EVENT_COLORS[hash(event.title) % len(self.EVENT_COLORS)]
         indicator = QFrame()
         indicator.setFixedSize(3, 36)
-        indicator.setStyleSheet(
-            f"QFrame {{ background-color: {color}; border-radius: 2px; }}"
-        )
+        indicator.setStyleSheet(f"QFrame {{ background-color: {color}; border-radius: 2px; }}")
         layout.addWidget(indicator)
 
-        # 时间区域
+        # ── 时间区域 ──
         time_column = QVBoxLayout()
         time_column.setSpacing(2)
 
@@ -182,7 +189,6 @@ class EventCard(QFrame):
         time_label.setStyleSheet(f"color: {color}; font-size: 13px; font-weight: 700;")
         time_column.addWidget(time_label)
 
-        # 如果有结束时间，显示持续时间
         if event.end_time:
             duration = (
                 (event.start_date.toordinal() + event.start_time.hour * 24 + event.start_time.minute)
@@ -198,13 +204,13 @@ class EventCard(QFrame):
         time_column.addStretch()
         layout.addLayout(time_column, 0)
 
-        # 分割线
+        # ── 分割线 ──
         divider = QFrame()
         divider.setFixedSize(1, 36)
         divider.setStyleSheet("background-color: #2D323C;")
         layout.addWidget(divider)
 
-        # 标题区域（可伸缩容器）
+        # ── 标题 + 日期 ──
         title_container = QWidget()
         title_column = QVBoxLayout(title_container)
         title_column.setContentsMargins(0, 0, 0, 0)
@@ -215,22 +221,219 @@ class EventCard(QFrame):
         title_label.setStyleSheet("color: #E8EAED; font-size: 14px; font-weight: 500;")
         title_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         title_column.addWidget(title_label)
+
+        # 日期徽章
+        date_badge = QLabel(event.start_date.strftime("%m/%d"))
+        date_badge.setStyleSheet(
+            "color: #6B7280; font-size: 10px; font-weight: 600;"
+            "background-color: rgba(128,128,128,0.1); padding: 2px 6px; border-radius: 4px;"
+        )
+        date_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_column.addWidget(date_badge)
         title_column.addStretch()
 
         layout.addWidget(title_container, 1)
 
-        # 日期标签徽章
-        date_badge = QLabel(event.start_date.strftime("%m/%d"))
-        date_badge.setStyleSheet(
-            "color: #6B7280;"
-            "font-size: 11px;"
-            "font-weight: 600;"
-            "background-color: rgba(128, 128, 128, 0.1);"
-            "padding: 4px 8px;"
-            "border-radius: 6px;"
+        # ── 操作按钮组（编辑 + 删除）──
+        btn_container = QWidget()
+        btn_container.setFixedWidth(80)
+        btn_layout = QHBoxLayout(btn_container)
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.setSpacing(4)
+
+        btn_style_on = (
+            "QPushButton#CardBtn {"
+            "    background-color: #6B8AFF;"
+            "    border: none; border-radius: 4px;"
+            "    color: #FFFFFF; font-size: 12px; padding: 4px 8px;"
+            "}"
+            "QPushButton#CardBtn:hover {"
+            "    background-color: #8DA4FF;"
+            "}"
+            "QPushButton#CardBtn:pressed {"
+            "    background-color: #4A6CF7;"
+            "}"
         )
-        date_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(date_badge)
+        btn_style_red = (
+            "QPushButton#CardBtn {"
+            "    background-color: #FF6B6B;"
+            "    border: none; border-radius: 4px;"
+            "    color: #FFFFFF; font-size: 12px; padding: 4px 8px;"
+            "}"
+            "QPushButton#CardBtn:hover {"
+            "    background-color: #FF8A8A;"
+            "}"
+            "QPushButton#CardBtn:pressed {"
+            "    background-color: #E04545;"
+            "}"
+        )
+
+        # 初始隐藏按钮
+        hover_style = """
+            QFrame#EventCard:hover QPushButton#CardBtn {
+                visibility: visible;
+            }
+        """
+
+        btn_edit = QPushButton("编辑")
+        btn_edit.setObjectName("CardBtn")
+        btn_edit.setStyleSheet(btn_style_on)
+        btn_edit.clicked.connect(lambda: self.edit_clicked.emit(self._event))
+        btn_layout.addWidget(btn_edit)
+
+        btn_delete = QPushButton("删除")
+        btn_delete.setObjectName("CardBtn")
+        btn_delete.setStyleSheet(btn_style_red)
+        btn_delete.clicked.connect(lambda: self.delete_clicked.emit(self._event))
+        btn_layout.addWidget(btn_delete)
+
+        layout.addWidget(btn_container)
+
+
+class EventEditDialog(QDialog):
+    """编辑日程事件对话框。"""
+
+    def __init__(self, event: CalendarEvent, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._event = event
+        self.setWindowTitle("编辑日程")
+        self.setMinimumWidth(400)
+        # 深色背景
+        self.setStyleSheet(
+            "QDialog { background-color: #1E222A; }"
+            "QLabel { color: #E8EAED; font-size: 13px; }"
+            "QLineEdit, QComboBox, QSpinBox, QDateEdit, QTimeEdit, QTextEdit {"
+            "    background-color: #2D323C; border: 1px solid #363C47;"
+            "    border-radius: 6px; color: #E8EAED; padding: 6px 10px;"
+            "    font-size: 13px;"
+            "}"
+            "QLineEdit:focus, QComboBox:focus, QSpinBox:focus,"
+            "QDateEdit:focus, QTimeEdit:focus, QTextEdit:focus {"
+            "    border-color: #6B8AFF;"
+            "}"
+            "QTextEdit { min-height: 60px; }"
+            "QSpinBox::up-button, QTimeEdit::up-button, QDateEdit::up-button {"
+            "    background-color: #363C47; border: none;"
+            "}"
+            "QSpinBox::down-button, QTimeEdit::down-button, QDateEdit::down-button {"
+            "    background-color: #2D323C; border: none;"
+            "}"
+            "QComboBox::drop-down { border: none; }"
+            "QComboBox QAbstractItemView {"
+            "    background-color: #2D323C; color: #E8EAED;"
+            "    selection-background-color: #6B8AFF;"
+            "    border: 1px solid #363C47;"
+            "}"
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(16)
+
+        # 表单
+        form = QFormLayout()
+        form.setSpacing(12)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+
+        # 标题
+        self._title_input = QLineEdit(event.title)
+        self._title_input.setStyleSheet(
+            "QLineEdit { background-color: #2D323C; border: 1px solid #363C47;"
+            "border-radius: 6px; color: #E8EAED; padding: 6px 10px; font-size: 14px; font-weight: 600; }"
+            "QLineEdit:focus { border-color: #6B8AFF; }"
+        )
+        form.addRow("标题:", self._title_input)
+
+        # 开始日期
+        self._start_date = QDateEdit()
+        self._start_date.setCalendarPopup(True)
+        self._start_date.setDisplayFormat("yyyy-MM-dd")
+        self._start_date.setDate(event.start_date)
+        form.addRow("开始日期:", self._start_date)
+
+        # 开始时间
+        self._start_time = QTimeEdit()
+        self._start_time.setDisplayFormat("HH:mm")
+        self._start_time.setTime(event.start_time)
+        form.addRow("开始时间:", self._start_time)
+
+        # 结束日期
+        self._end_date = QDateEdit()
+        self._end_date.setCalendarPopup(True)
+        self._end_date.setDisplayFormat("yyyy-MM-dd")
+        self._end_date.setDate(event.end_date or event.start_date)
+        form.addRow("结束日期:", self._end_date)
+
+        # 结束时间
+        self._end_time = QTimeEdit()
+        self._end_time.setDisplayFormat("HH:mm")
+        default_end = event.end_time or event.start_time
+        self._end_time.setTime(default_end)
+        form.addRow("结束时间:", self._end_time)
+
+        # 地点
+        self._location_input = QLineEdit(event.location)
+        self._location_input.setPlaceholderText("可选")
+        form.addRow("地点:", self._location_input)
+
+        # 描述
+        self._desc_input = QTextEdit(event.description)
+        self._desc_input.setMaximumHeight(80)
+        self._desc_input.setPlaceholderText("可选")
+        form.addRow("描述:", self._desc_input)
+
+        # 提醒
+        self._reminder_spin = QSpinBox()
+        self._reminder_spin.setRange(0, 1440)
+        self._reminder_spin.setValue(event.reminder_minutes)
+        self._reminder_spin.setSuffix(" 分钟前")
+        form.addRow("提醒:", self._reminder_spin)
+
+        layout.addLayout(form)
+
+        # 按钮行
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+
+        cancel_btn = QPushButton("取消")
+        cancel_btn.setFixedWidth(80)
+        cancel_btn.setStyleSheet(
+            "QPushButton { background-color: #2D323C; border: 1px solid #363C47;"
+            "border-radius: 6px; color: #E8EAED; padding: 8px 16px; font-size: 13px; }"
+            "QPushButton:hover { background-color: #363C47; }"
+        )
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+
+        save_btn = QPushButton("保存")
+        save_btn.setFixedWidth(80)
+        save_btn.setStyleSheet(
+            "QPushButton { background-color: #6B8AFF; border: none;"
+            "border-radius: 6px; color: #FFFFFF; padding: 8px 16px;"
+            "font-size: 13px; font-weight: 600; }"
+            "QPushButton:hover { background-color: #8DA4FF; }"
+            "QPushButton:pressed { background-color: #4A6CF7; }"
+        )
+        save_btn.clicked.connect(self._save)
+        btn_row.addWidget(save_btn)
+
+        layout.addLayout(btn_row)
+
+    def _save(self) -> None:
+        """保存修改后的数据回 self._event。"""
+        title = self._title_input.text().strip()
+        if not title:
+            title = self._event.title  # 空则保留原值
+
+        self._event.title = title
+        self._event.start_date = self._start_date.date().toPyDate()
+        self._event.start_time = self._start_time.time().toPyTime()
+        self._event.end_date = self._end_date.date().toPyDate()
+        self._event.end_time = self._end_time.time().toPyTime()
+        self._event.location = self._location_input.text().strip()
+        self._event.description = self._desc_input.toPlainText().strip()
+        self._event.reminder_minutes = self._reminder_spin.value()
+
+        self.accept()
 
 
 class WorkerThread(QThread):
@@ -279,6 +482,8 @@ class CentralWidget(QWidget):
         self._events: list[CalendarEvent] = []
         self._audio_capture: AudioCapture | None = None
         self._recording_active: bool = False  # 跟踪真实录音是否启动
+        self._worker: Optional[WorkerThread] = None  # 后台工作线程（持有引用防 GC）
+        self._calendar = CalendarBackend()
         self._init_pipeline()
 
         # 水平布局：左侧边栏 + 右侧 QStackedWidget
@@ -830,9 +1035,36 @@ class CentralWidget(QWidget):
         model_combo = QComboBox()
         model_combo.setObjectName(f"{title}_model")
         if "ASR" in title:
-            models = ["whisper-1", "whisper-large", "whisper-medium"]
+            # 根据配置中的 Base URL 判断模型列表
+            url = config.get("base_url", "").lower()
+            if "dashscope" in url:
+                models = [
+                    "qwen3-asr-flash",
+                    "whisper-1",
+                    "whisper-large",
+                ]
+            else:
+                models = [
+                    "whisper-1",
+                    "whisper-large",
+                    "whisper-medium",
+                ]
         else:
-            models = ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo"]
+            url = config.get("base_url", "").lower()
+            if "dashscope" in url:
+                models = [
+                    "qwen-turbo",
+                    "gpt-4o",
+                    "gpt-4o-mini",
+                    "qwen3.6-flash"
+                ]
+            else:
+                models = [
+                    "gpt-4o",
+                    "gpt-4o-mini",
+                    "gpt-4",
+                    "gpt-3.5-turbo",
+                ]
         for m in models:
             model_combo.addItem(m)
         current = config.get("model", "")
@@ -1000,20 +1232,37 @@ class CentralWidget(QWidget):
     # 业务逻辑方法
     # ═══════════════════════════════════════════
 
+    def _create_card(self, event: CalendarEvent) -> EventCard:
+        """创建带信号连接的 EventCard。"""
+        card = EventCard(event)
+        card.edit_clicked.connect(self._on_edit_event)
+        card.delete_clicked.connect(self._on_delete_event)
+        return card
+
     def _load_sample_events(self) -> None:
-        """加载示例事件到日程页面。"""
+        """加载事件到日程页面 — 优先从 CalendarBackend 读取持久化数据，没有才加载示例。"""
         from datetime import date, time
 
-        samples = [
-            CalendarEvent(title="团队晨会", start_date=date.today(), start_time=time(9, 0)),
-            CalendarEvent(title="产品评审", start_date=date.today(), start_time=time(14, 0)),
-            CalendarEvent(title="代码审查", start_date=date.today(), start_time=time(16, 0)),
-        ]
+        # 1. 尝试从 ICS 文件加载已有事件
+        saved_events = self._calendar.load_events()
 
-        for event in samples:
-            card = EventCard(event)
-            self._event_layout.insertWidget(0, card)
-            self._events.append(event)
+        if saved_events:
+            saved_events.sort(key=lambda e: (e.start_date, e.start_time))
+            for event in saved_events:
+                card = self._create_card(event)
+                self._event_layout.insertWidget(0, card)
+                self._events.append(event)
+        else:
+            samples = [
+                CalendarEvent(title="团队晨会", start_date=date.today(), start_time=time(9, 0)),
+                CalendarEvent(title="产品评审", start_date=date.today(), start_time=time(14, 0)),
+                CalendarEvent(title="代码审查", start_date=date.today(), start_time=time(16, 0)),
+            ]
+            for event in samples:
+                card = self._create_card(event)
+                self._event_layout.insertWidget(0, card)
+                self._events.append(event)
+            self._calendar.create_ics_file(samples)
 
         # 隐藏空状态提示
         if self._empty_label.isVisible():
@@ -1057,12 +1306,17 @@ class CentralWidget(QWidget):
                 self._result_label.setStyleSheet(
                     "QLabel#ResultLabel { color: #FFB340; font-size: 13px; padding: 0; background-color: transparent; }"
                 )
-                # 后台线程处理（ASR → NLU → 日历）
-                worker = WorkerThread(self._process_audio_file, str(wav_path))
-                worker.started.connect(lambda: self._status_indicator.set_status("processing", "正在识别..."))
-                worker.finished.connect(self._on_pipeline_result)
-                worker.error.connect(self._on_pipeline_error)
-                worker.start()
+                # 后台线程处理（ASR → NLU → 日历）— 持有引用防 GC
+                if self._worker and self._worker.isRunning():
+                    self._worker.quit()
+                    self._worker.wait(500)
+                self._worker = WorkerThread(self._process_audio_file, str(wav_path))
+                self._worker.started.connect(
+                    lambda: self._status_indicator.set_status("processing", "正在识别...")
+                )
+                self._worker.finished.connect(self._on_pipeline_result)
+                self._worker.error.connect(self._on_pipeline_error)
+                self._worker.start()
             except Exception as e:
                 import logging
                 logging.getLogger("voicecalendar").error("录音停止失败: %s", e)
@@ -1082,18 +1336,33 @@ class CentralWidget(QWidget):
         asr_cfg = settings_module.get_asr_config()
         nlu_cfg = settings_module.get_nlu_config()
 
-        # 1. ASR 识别
-        from voicecalendar.services.asr_service import ASRService
-        asr = ASRService(
-            api_key=asr_cfg.get("api_key", ""),
-            base_url=asr_cfg.get("base_url", ""),
-            model=asr_cfg.get("model", "whisper-1"),
-        )
-        trans_result = asr.transcribe(wav_path)
-        if not trans_result.success:
-            raise Exception(trans_result.error_message)
+        asr_base_url = asr_cfg.get("base_url", "").lower()
+        asr_model = asr_cfg.get("model", "whisper-1")
 
-        text = trans_result.text.strip()
+        # 1. ASR 识别 — 根据 Base URL 选择 ASR 服务
+        if "dashscope" in asr_base_url:
+            # DashScope Qwen-ASR（qwen3-asr-flash）
+            from voicecalendar.services.asr_dashscope import DashScopeASR
+            if not asr_model:
+                asr_model = "qwen3-asr-flash"
+            asr = DashScopeASR(api_key=asr_cfg.get("api_key", ""), model=asr_model)
+            trans_result = asr.transcribe(wav_path)
+            if not trans_result.success:
+                raise Exception(trans_result.error_message)
+            text = trans_result.text.strip()
+        else:
+            # OpenAI Whisper API
+            from voicecalendar.services.asr_service import ASRService
+            asr = ASRService(
+                api_key=asr_cfg.get("api_key", ""),
+                base_url=asr_cfg.get("base_url", ""),
+                model=asr_model,
+            )
+            trans_result = asr.transcribe(wav_path)
+            if not trans_result.success:
+                raise Exception(trans_result.error_message)
+            text = trans_result.text.strip()
+
         if not text:
             raise Exception("未识别到有效语音内容")
 
@@ -1107,10 +1376,7 @@ class CentralWidget(QWidget):
         intent = nlu.parse(text)
 
         # 3. 日历操作
-        calendar_result = None
-        from voicecalendar.services.calendar_backend import CalendarBackend
-
-        calendar = CalendarBackend()
+        calendar = self._calendar
         if intent.is_add and intent.event:
             calendar_result = calendar.add_event(intent.event)
         elif intent.is_delete:
@@ -1167,6 +1433,8 @@ class CentralWidget(QWidget):
                     "QLabel#ResultLabel { color: #3DDC84; font-size: 13px; padding: 0; background-color: transparent; }"
                 )
                 self._add_event(result.intent.event)
+                # 持久化到 CalendarBackend（真实模式已在 _process_audio_file 保存，此处做幂等兜底）
+                self._persist_event(result.intent.event)
                 self._toast("日程已添加 ✓", ToastType.SUCCESS)
                 QTimer.singleShot(1500, lambda: self.switch_page(self.PAGE_SCHEDULE))
             elif result.intent.is_query:
@@ -1180,6 +1448,8 @@ class CentralWidget(QWidget):
                 self._result_label.setStyleSheet(
                     "QLabel#ResultLabel { color: #FF6B6B; font-size: 13px; padding: 0; background-color: transparent; }"
                 )
+                # 删除后从 CalendarBackend 刷新 UI 列表
+                self._refresh_event_list()
                 self._toast("已删除日程", ToastType.SUCCESS)
             else:
                 self._result_label.setText(f"💬 {result.raw_text}")
@@ -1197,7 +1467,7 @@ class CentralWidget(QWidget):
             self._toast(error_display, ToastType.ERROR)
 
     def _add_event(self, event: CalendarEvent) -> None:
-        card = EventCard(event)
+        card = self._create_card(event)
         card.show()
         self._event_layout.insertWidget(0, card)
         self._events.append(event)
@@ -1207,6 +1477,118 @@ class CentralWidget(QWidget):
 
         # 滑入动画
         QTimer.singleShot(10, lambda: self._animate_card_entry(card))
+
+    def _persist_event(self, event: CalendarEvent) -> None:
+        """将事件持久化到 CalendarBackend（如果尚未保存）。"""
+        # 检查是否已经在持久化存储中（避免真实模式重复保存）
+        saved = self._calendar.load_events()
+        already_saved = any(
+            e.title == event.title and e.start_date == event.start_date and e.start_time == event.start_time
+            for e in saved
+        )
+        if not already_saved:
+            self._calendar.add_event(event)
+
+    def _refresh_event_list(self) -> None:
+        """从 CalendarBackend 重新加载事件并刷新 UI 列表。"""
+        # 清除现有 EventCard — 遍历 layout 只取 EventCard，跳过 _empty_label 和 stretch
+        i = 0
+        while i < self._event_layout.count():
+            item = self._event_layout.itemAt(i)
+            if item and item.widget():
+                w = item.widget()
+                if isinstance(w, EventCard):
+                    # 从 layout 移除并删除卡片
+                    self._event_layout.removeItem(item)
+                    w.setParent(None)
+                    w.deleteLater()
+                    continue
+            i += 1
+
+        # 重新加载
+        self._events.clear()
+        events = self._calendar.load_events()
+        events.sort(key=lambda e: (e.start_date, e.start_time))
+
+        if events:
+            for event in events:
+                card = self._create_card(event)
+                self._event_layout.insertWidget(0, card)
+                self._events.append(event)
+            self._empty_label.hide()
+        else:
+            self._empty_label.show()
+
+    # ── 编辑 / 删除 事件 ──
+
+    def _on_edit_event(self, event: CalendarEvent) -> None:
+        """编辑事件回调 — 弹出编辑对话框，保存后更新。"""
+        # 记录编辑前的唯一标识（start_date + start_time 不变时用于定位）
+        old_id = (event.start_date, event.start_time, event.title)
+
+        dialog = EventEditDialog(event, self.window())
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            # 可靠更新：加载所有事件，移除被编辑的那个，加入新事件
+            all_events = self._calendar.load_events()
+            new_events = [
+                e for e in all_events
+                if not (
+                    e.title == old_id[2]
+                    and e.start_date == old_id[0]
+                    and e.start_time == old_id[1]
+                )
+            ]
+            new_events.append(event)
+            self._calendar.create_ics_file(new_events)
+            self._refresh_event_list()
+            self._toast("日程已更新 ✓", ToastType.SUCCESS)
+
+    def _on_delete_event(self, event: CalendarEvent) -> None:
+        """删除事件回调 — 确认后删除。"""
+        from PyQt6.QtWidgets import QMessageBox
+        msg = QMessageBox(
+            QMessageBox.Icon.Question,
+            "确认删除",
+            f"确定要删除「{event.title}」吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            self.window(),
+        )
+        msg.setStyleSheet("""
+            QMessageBox {
+                background-color: #1E222A;
+                color: #E8EAED;
+            }
+            QMessageBox QLabel {
+                color: #E8EAED;
+            }
+            QMessageBox QPushButton {
+                background-color: #2D323C;
+                border: 1px solid #363C47;
+                border-radius: 6px;
+                color: #E8EAED;
+                padding: 8px 20px;
+                font-size: 13px;
+            }
+            QMessageBox QPushButton:hover {
+                background-color: #363C47;
+                border-color: #6B8AFF;
+            }
+        """)
+        reply = msg.exec()
+        if reply == QMessageBox.StandardButton.Yes:
+            # 精确匹配删除：用 start_date + start_time + title 定位
+            all_events = self._calendar.load_events()
+            new_events = [
+                e for e in all_events
+                if not (
+                    e.title == event.title
+                    and e.start_date == event.start_date
+                    and e.start_time == event.start_time
+                )
+            ]
+            self._calendar.create_ics_file(new_events)
+            self._refresh_event_list()
+            self._toast("已删除日程", ToastType.SUCCESS)
 
     def _animate_card_entry(self, card: EventCard) -> None:
         target_pos = card.pos()
@@ -1232,9 +1614,12 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self._toast_manager: Optional[ToastManager] = None
+        self._tray_icon: Optional[QSystemTrayIcon] = None
+        self._force_quit: bool = False  # 标记是否强制退出（托盘菜单触发）
         self._setup_window()
         self._setup_ui()
         self._apply_theme()
+        self._setup_tray()
 
     def _setup_window(self) -> None:
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
@@ -1279,6 +1664,141 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(combined)
         self.theme_toggled.emit(mode)
 
+    # ── 系统托盘 ──
+
+    def _create_tray_icon(self) -> QIcon:
+        """用 QPainter 绘制麦克风托盘图标（多尺寸）。"""
+        icon = QIcon()
+        for size in [16, 22, 32, 48, 64]:
+            pm = QPixmap(size, size)
+            pm.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(pm)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+            s = size
+            blue = QColor(107, 138, 255)
+            white = QColor(255, 255, 255)
+
+            # 麦克风主体 — 圆角矩形
+            w = int(s * 0.44)
+            h = int(s * 0.50)
+            x = (s - w) // 2
+            y = int(s * 0.08)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(blue)
+            painter.drawRoundedRect(x, y, w, h, w // 2, w // 2)
+
+            # 内部白色区域
+            iw = int(w * 0.6)
+            ih = int(h * 0.75)
+            ix = (s - iw) // 2
+            iy = y + int((h - ih) * 0.3)
+            painter.setBrush(white)
+            painter.drawRoundedRect(ix, iy, iw, ih, iw // 2, iw // 2)
+
+            # 底部圆弧（麦克风支架）
+            cx = s // 2
+            bottom_y = y + h
+            arc_w = int(s * 0.6)
+            arc_h = int(s * 0.2)
+            arc_x = cx - arc_w // 2
+
+            painter.setBrush(blue)
+            # 绘制下半椭圆弧
+            painter.drawEllipse(
+                cx, bottom_y,
+                arc_w, arc_h
+            )
+
+            # 底部小竖线
+            line_w = int(s * 0.12)
+            line_h = int(s * 0.06)
+            line_x = cx - line_w // 2
+            line_y = s - line_h - int(s * 0.02)
+            painter.setBrush(white)
+            painter.drawRoundedRect(line_x, line_y, line_w, line_h, 1, 1)
+
+            painter.end()
+            icon.addPixmap(pm)
+
+        return icon
+
+    def _setup_tray(self) -> None:
+        """创建系统托盘图标和右键菜单。"""
+        # 检查系统托盘是否可用
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+
+        icon = self._create_tray_icon()
+        self._tray_icon = QSystemTrayIcon(icon, self)
+        self._tray_icon.setToolTip("VoiceCalendar Pro")
+
+        # 右键菜单 — 设置深色主题配色，避免白色文字在白色背景上看不见
+        tray_menu = QMenu()
+        tray_menu.setStyleSheet(
+            "QMenu {"
+            "    background-color: #2D323C;"
+            "    color: #E8EAED;"
+            "    border: 1px solid #3D4450;"
+            "    border-radius: 4px;"
+            "    padding: 4px;"
+            "    font-family: 'Microsoft YaHei', 'Segoe UI';"
+            "    font-size: 12pt;"
+            "}"
+            "QMenu::item {"
+            "    padding: 6px 24px 6px 16px;"
+            "    border-radius: 2px;"
+            "}"
+            "QMenu::item:selected {"
+            "    background-color: #6B8AFF;"
+            "    color: #FFFFFF;"
+            "}"
+            "QMenu::separator {"
+            "    background-color: #3D4450;"
+            "    height: 1px;"
+            "    margin: 4px 8px;"
+            "}"
+        )
+
+        action_show = QAction("显示窗口", tray_menu)
+        action_show.triggered.connect(self._show_from_tray)
+        tray_menu.addAction(action_show)
+
+        tray_menu.addSeparator()
+
+        action_quit = QAction("退出", tray_menu)
+        action_quit.triggered.connect(self._quit_app)
+        tray_menu.addAction(action_quit)
+
+        self._tray_icon.setContextMenu(tray_menu)
+
+        # 左键单击 -> 显示窗口
+        self._tray_icon.activated.connect(self._on_tray_activated)
+
+        # 显示托盘图标
+        self._tray_icon.show()
+
+    def _show_from_tray(self, _checked: bool = False) -> None:
+        """从托盘恢复窗口。"""
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def _quit_app(self, _checked: bool = False) -> None:
+        """强制退出应用。"""
+        # 隐藏托盘图标，清理资源
+        if self._tray_icon is not None:
+            self._tray_icon.hide()
+        # 直接退出 — QApplication.quit() 在有活跃 singleShot timer 时不生效
+        # 用 sys.exit(0) 确保立即终止
+        import sys
+        sys.exit(0)
+
+    def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        """托盘图标点击事件 — 单击显示窗口。"""
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self._show_from_tray()
+
     def _toggle_maximize(self) -> None:
         if self.isMaximized():
             self.showNormal()
@@ -1305,8 +1825,25 @@ class MainWindow(QMainWindow):
         super().changeEvent(event)
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
-        event.accept()
-        super().closeEvent(event)
+        if hasattr(self, "_force_quit") and self._force_quit:
+            # 强制退出（托盘菜单触发）
+            if self._tray_icon is not None:
+                self._tray_icon.hide()
+            event.accept()
+            super().closeEvent(event)
+        else:
+            # 默认行为：最小化到托盘（不退出）
+            event.ignore()
+            self.hide()
+            if self._toast_manager is not None:
+                self._toast_manager.clear_all()
+            if self._tray_icon is not None:
+                self._tray_icon.showMessage(
+                    "VoiceCalendar Pro",
+                    "已最小化到系统托盘，右键托盘图标可退出",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    2000,
+                )
 
 
 def tr(text: str) -> str:
