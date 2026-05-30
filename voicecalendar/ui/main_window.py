@@ -337,14 +337,8 @@ class MainWindow(QMainWindow):
             bg_color = QColor(255, 255, 255)
 
         # 裁剪 (使圆角外的区域透明)
-        old_clip = painter.clipRegion()
         painter.setClipPath(path)
         painter.fillRect(path.boundingRect(), bg_color)
-        painter.setClipRegion(old_clip)
-
-        # 边框
-        theme_colors = theme_mgr.colors
-        painter.setStrokeStyle(Qt.PenStyle.SolidLine)
         painter.end()
 
     def changeEvent(self, event) -> None:  # type: ignore[override]
