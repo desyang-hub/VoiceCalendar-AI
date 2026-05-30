@@ -9,15 +9,67 @@ from __future__ import annotations
 - 加载并显示主窗口
 """
 
+import logging
 import sys
+import traceback
 
-from PyQt6.QtCore import Qt, QCoreApplication
+from PyQt6.QtCore import Qt, QCoreApplication, QObject
 from PyQt6.QtGui import QColor, QPalette
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from voicecalendar.core.theme import ThemeManager, ThemeMode
 from voicecalendar.core.resources import ResourceLoader
 from voicecalendar.ui.main_window import MainWindow
+
+# ── 全局日志配置 ──
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger("voicecalendar")
+
+
+class GlobalExceptionHandler(QObject):
+    """全局异常处理器 — 防止未捕获异常导致应用崩溃。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+
+        # 安装 Python 级别异常钩子
+        sys.excepthook = self._handle_exception
+
+        # 安装 Qt 级别异常过滤器
+        QCoreApplication.installGlobalShortcutHandler  # type: ignore[attr-defined]
+
+    def _handle_exception(
+        self,
+        exc_type: type[BaseException],
+        exc_value: BaseException,
+        exc_traceback,
+    ) -> None:
+        """处理未捕获的 Python 异常。"""
+        error_msg = "".join(
+            traceback.format_exception(exc_type, exc_value, exc_traceback)
+        )
+        logger.error("未捕获的异常:\\n%s", error_msg)
+
+        # 在 UI 中显示错误提示（不阻塞）
+        try:
+            app = QApplication.instance()
+            if app is not None:
+                QMessageBox.critical(  # type: ignore[attr-defined]
+                    None,
+                    "VoiceCalendar 错误",
+                    f"发生未预期的错误:\\n\\n{exc_value}\\n\\n详细信息已记录到日志。",
+                )
+        except Exception:
+            pass  # 即使在错误处理器中也避免崩溃
+
+
+def install_exception_handler() -> None:
+    """安装全局异常处理器。"""
+    GlobalExceptionHandler()
 
 
 def create_app() -> QApplication:
@@ -49,6 +101,10 @@ def create_app() -> QApplication:
 
 def main() -> None:
     """应用主入口。"""
+    # 安装全局异常处理器
+    install_exception_handler()
+    logger.info("VoiceCalendar-Pro 启动")
+
     # 创建应用
     app = create_app()
 

@@ -40,6 +40,7 @@ from voicecalendar.ui.widgets.waveform import WaveformWidget, StatusIndicator
 from voicecalendar.ui.widgets.skeleton import CircularProgress
 from voicecalendar.models.event import CalendarEvent
 from voicecalendar.services.pipeline import MockPipeline
+from voicecalendar.services.errors import get_user_message
 
 win_cfg = WindowConfig()
 anim_cfg = AnimationConfig()
@@ -537,8 +538,23 @@ class CentralWidget(QWidget):
         QTimer.singleShot(1200, self._process_voice)
 
     def _process_voice(self) -> None:
-        """处理语音指令。"""
-        result = self._pipeline.process_voice()
+        """处理语音指令 — 带错误处理。"""
+        try:
+            result = self._pipeline.process_voice()
+        except Exception as e:
+            # 最外层捕获 — 防止任何未预期错误导致崩溃
+            self._status_indicator.set_status("error")
+            self._result_label.setText("❌ 处理失败，请稍后重试")
+            self._result_label.setStyleSheet(
+                "QLabel#ResultLabel {"
+                "    color: #FF6B6B;"
+                "    font-size: 13px;"
+                "    padding: 0;"
+                "    background-color: transparent;"
+                "}"
+            )
+            self._toast(get_user_message(e) or "处理失败", ToastType.ERROR)
+            return
 
         if result.success and result.intent:
             self._status_indicator.set_status("success")
@@ -579,7 +595,12 @@ class CentralWidget(QWidget):
                 self._toast("已删除日程", ToastType.SUCCESS)
         else:
             self._status_indicator.set_status("error")
-            self._result_label.setText("❌ 识别失败，请重试")
+
+            # 使用用户友好的错误提示
+            error_msg = get_user_message(Exception(result.error_message)) if result.error_message else ""
+            error_display = error_msg or result.error_message or "识别失败，请重试"
+
+            self._result_label.setText(f"❌ {error_display}")
             self._result_label.setStyleSheet(
                 "QLabel#ResultLabel {"
                 "    color: #FF6B6B;"
@@ -588,7 +609,7 @@ class CentralWidget(QWidget):
                 "    background-color: transparent;"
                 "}"
             )
-            self._toast("识别失败", ToastType.ERROR)
+            self._toast(error_display, ToastType.ERROR)
 
     def _add_event(self, event: CalendarEvent) -> None:
         """添加事件到列表 — 带滑入动画。"""
