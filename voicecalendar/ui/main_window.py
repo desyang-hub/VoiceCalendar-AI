@@ -43,7 +43,8 @@ from voicecalendar.ui.components.toast import ToastManager, ToastType
 from voicecalendar.ui.widgets.waveform import WaveformWidget, StatusIndicator
 from voicecalendar.ui.widgets.skeleton import CircularProgress
 from voicecalendar.models.event import CalendarEvent
-from voicecalendar.services.pipeline import MockPipeline
+from voicecalendar.services.pipeline import VoiceCalendarPipeline, MockPipeline
+from voicecalendar.services.audio_capture import AudioCapture
 from voicecalendar.services.errors import get_user_message
 from voicecalendar.core import settings as settings_module
 
@@ -275,9 +276,11 @@ class CentralWidget(QWidget):
         super().__init__(parent)
         self.setObjectName("ContentArea")
 
-        # 初始化服务
-        self._pipeline = MockPipeline()
+        # 初始化服务 — 从设置加载配置，有 API Key 则用真实服务，否则降级 Mock
         self._events: list[CalendarEvent] = []
+        self._audio_capture: AudioCapture | None = None
+        self._recording_active: bool = False  # 跟踪真实录音是否启动
+        self._init_pipeline()
 
         # 水平布局：左侧边栏 + 右侧 QStackedWidget
         main_layout = QHBoxLayout(self)
@@ -307,8 +310,59 @@ class CentralWidget(QWidget):
 
         main_layout.addWidget(self._stack, 1)
 
+        # 连接音频 RMS 到波形可视化（在页面创建后）
+        self._setup_rms_callback()
+
         # 加载示例事件
         self._load_sample_events()
+
+    def _init_pipeline(self) -> None:
+        """初始化处理流水线 — 有 API Key 用真实服务，否则 Mock 降级。"""
+        asr_cfg = settings_module.get_asr_config()
+        nlu_cfg = settings_module.get_nlu_config()
+
+        api_key = asr_cfg.get("api_key", "") or nlu_cfg.get("api_key", "")
+        base_url = asr_cfg.get("base_url", "") or nlu_cfg.get("base_url", "")
+
+        if api_key:
+            self._pipeline = VoiceCalendarPipeline(
+                api_key=api_key,
+                base_url=base_url or "https://api.openai.com/v1",
+                whisper_model=asr_cfg.get("model", "whisper-1"),
+                llm_model=nlu_cfg.get("model", "gpt-4o"),
+            )
+            self._audio_capture = AudioCapture()
+        else:
+            self._pipeline = MockPipeline()
+            self._audio_capture = None
+            import logging
+            logging.getLogger("voicecalendar").info(
+                "API Key 未配置，使用 Mock 模式。请在设置页面配置 ASR/LLM API Key"
+            )
+
+    def _setup_rms_callback(self) -> None:
+        """连接音频 RMS 数据到波形可视化（在波形创建后调用）。"""
+        if self._audio_capture is not None and hasattr(self, "_waveform"):
+            self._audio_capture.set_rms_callback(self._on_audio_rms)
+
+    def _on_audio_rms(self, rms: float) -> None:
+        """音频 RMS 数据回调 — 更新波形可视化。"""
+        if hasattr(self, "_waveform"):
+            self._waveform.set_rms_level(min(rms / 32768.0, 1.0))
+
+    def reload_pipeline(self) -> None:
+        """重新加载流水线（设置变更后调用）。"""
+        self._init_pipeline()
+        self._setup_rms_callback()
+        # 更新状态指示灯
+        asr_cfg = settings_module.get_asr_config()
+        has_key = bool(asr_cfg.get("api_key", ""))
+        if has_key:
+            self._status_dot.setStyleSheet("color: #3DDC84; font-size: 8px;")
+            self._status_dot.setToolTip("服务已连接")
+        else:
+            self._status_dot.setStyleSheet("color: #FFB340; font-size: 8px;")
+            self._status_dot.setToolTip("Mock 模式 — 请在设置中配置 API Key")
 
     # ── 导航切换 ──
 
@@ -396,10 +450,19 @@ class CentralWidget(QWidget):
         version_layout = QVBoxLayout(version_container)
         version_layout.setContentsMargins(0, 8, 0, 12)
         version_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        version_dot = QLabel("●")
-        version_dot.setStyleSheet("color: #3DDC84; font-size: 8px;")
-        version_dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        version_layout.addWidget(version_dot)
+
+        self._status_dot = QLabel("●")
+        # 根据配置状态设置颜色：绿色 = API 已配置，黄色 = Mock 模式
+        asr_cfg = settings_module.get_asr_config()
+        has_api_key = bool(asr_cfg.get("api_key", ""))
+        if has_api_key:
+            self._status_dot.setStyleSheet("color: #3DDC84; font-size: 8px;")
+            self._status_dot.setToolTip("服务已连接")
+        else:
+            self._status_dot.setStyleSheet("color: #FFB340; font-size: 8px;")
+            self._status_dot.setToolTip("Mock 模式 — 请在设置中配置 API Key")
+        self._status_dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        version_layout.addWidget(self._status_dot)
         layout.addWidget(version_container)
 
         return sidebar
@@ -467,9 +530,16 @@ class CentralWidget(QWidget):
         layout.setContentsMargins(32, 24, 32, 24)
         layout.setSpacing(20)
 
-        # 提示
-        hint = QLabel("点击麦克风按钮开始语音输入")
-        hint.setStyleSheet("color: #6B7280; font-size: 13px;")
+       # 配置状态提示
+        asr_cfg = settings_module.get_asr_config()
+        has_api_key = bool(asr_cfg.get("api_key", ""))
+
+        if has_api_key:
+            hint = QLabel("点击麦克风按钮开始语音输入")
+            hint.setStyleSheet("color: #3DDC84; font-size: 13px;")
+        else:
+            hint = QLabel("⚠️ Mock 模式 — 点击「设置」⚙ 配置 API Key 启用真实语音识别")
+            hint.setStyleSheet("color: #FFB340; font-size: 12px;")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(hint)
 
@@ -900,11 +970,23 @@ class CentralWidget(QWidget):
 
         settings_module.save_settings(settings_data)
 
-        self._settings_status.setText("✅ 设置已保存")
-        self._settings_status.setStyleSheet("color: #3DDC84; font-size: 12px;")
-        self._toast("设置已保存", ToastType.SUCCESS)
+        # 重新加载流水线（应用新配置）
+        self.reload_pipeline()
 
-        # 隐藏后清除提示
+        # 更新状态指示灯颜色
+        asr_cfg = settings_module.get_asr_config()
+        has_key = bool(asr_cfg.get("api_key", ""))
+        status_dot = self._settings_page.findChild(QLabel, "status_dot")
+        if has_key:
+            self._settings_status.setText("✅ 设置已保存，服务就绪")
+            self._settings_status.setStyleSheet("color: #3DDC84; font-size: 12px;")
+            self._toast("设置已保存，语音识别已启用", ToastType.SUCCESS)
+        else:
+            self._settings_status.setText("✅ 设置已保存（Mock 模式）")
+            self._settings_status.setStyleSheet("color: #FFB340; font-size: 12px;")
+            self._toast("设置已保存（未配置 API Key，使用 Mock 模式）", ToastType.WARNING)
+
+        # 3 秒后清除提示
         QTimer.singleShot(3000, lambda: self._settings_status.setText(""))
 
     def _on_theme_toggled(self, checked: bool) -> None:
@@ -939,6 +1021,7 @@ class CentralWidget(QWidget):
             self._empty_label.hide()
 
     def _on_recording_started(self) -> None:
+        """录音开始 — 启动音频捕获。"""
         self._status_indicator.set_status("recording")
         self._waveform.set_recording(True)
         self._result_label.setText("")
@@ -946,29 +1029,139 @@ class CentralWidget(QWidget):
             "QLabel#ResultLabel { color: #9AA0A8; font-size: 13px; padding: 0; background-color: transparent; }"
         )
 
-    def _on_recording_stopped(self) -> None:
-        self._status_indicator.set_status("processing")
-        self._waveform.set_recording(False)
-        self._result_label.setText("⏳ 正在识别语音...")
-        self._result_label.setStyleSheet(
-            "QLabel#ResultLabel { color: #FFB340; font-size: 13px; padding: 0; background-color: transparent; }"
-        )
-        QTimer.singleShot(1200, self._process_voice)
+        if self._audio_capture is not None:
+            try:
+                self._audio_capture.start()
+                self._recording_active = True
+                self._status_indicator.set_status("recording", "正在录音，再次点击停止...")
+            except Exception as e:
+                import logging
+                logging.getLogger("voicecalendar").error("录音启动失败: %s", e)
+                self._status_indicator.set_status("error", f"录音失败: {e}")
+                self._toast(f"录音失败: {e}", ToastType.ERROR)
+                self._waveform.set_recording(False)
+                self._record_btn.set_recording(False)
+        else:
+            self._recording_active = False
+            self._status_indicator.set_status("recording", "Mock 模式 — 正在模拟录音...")
 
-    def _process_voice(self) -> None:
+    def _on_recording_stopped(self) -> None:
+        """录音停止 — 停止捕获，开始处理流程。"""
+        self._waveform.set_recording(False)
+
+        if self._recording_active and self._audio_capture is not None and self._audio_capture.is_recording:
+            self._recording_active = False
+            self._status_indicator.set_status("processing", "正在识别...")
+            try:
+                wav_path = self._audio_capture.stop()
+                self._result_label.setText("🎤 录音完成，正在识别...")
+                self._result_label.setStyleSheet(
+                    "QLabel#ResultLabel { color: #FFB340; font-size: 13px; padding: 0; background-color: transparent; }"
+                )
+                # 后台线程处理（ASR → NLU → 日历）
+                worker = WorkerThread(self._process_audio_file, str(wav_path))
+                worker.started.connect(lambda: self._status_indicator.set_status("processing", "正在识别..."))
+                worker.finished.connect(self._on_pipeline_result)
+                worker.error.connect(self._on_pipeline_error)
+                worker.start()
+            except Exception as e:
+                import logging
+                logging.getLogger("voicecalendar").error("录音停止失败: %s", e)
+                self._status_indicator.set_status("error", f"录音失败: {e}")
+                self._toast(f"录音失败: {e}", ToastType.ERROR)
+        else:
+            # Mock 模式：模拟延迟后返回预设结果
+            self._status_indicator.set_status("processing", "Mock 模式 — 正在模拟识别...")
+            self._result_label.setText("🎤 Mock 模式 — 正在模拟识别...")
+            self._result_label.setStyleSheet(
+                "QLabel#ResultLabel { color: #FFB340; font-size: 13px; padding: 0; background-color: transparent; }"
+            )
+            QTimer.singleShot(1500, self._process_mock)
+
+    def _process_audio_file(self, wav_path: str):
+        """处理录音文件 — ASR → NLU → 日历。"""
+        asr_cfg = settings_module.get_asr_config()
+        nlu_cfg = settings_module.get_nlu_config()
+
+        # 1. ASR 识别
+        from voicecalendar.services.asr_service import ASRService
+        asr = ASRService(
+            api_key=asr_cfg.get("api_key", ""),
+            base_url=asr_cfg.get("base_url", ""),
+            model=asr_cfg.get("model", "whisper-1"),
+        )
+        trans_result = asr.transcribe(wav_path)
+        if not trans_result.success:
+            raise Exception(trans_result.error_message)
+
+        text = trans_result.text.strip()
+        if not text:
+            raise Exception("未识别到有效语音内容")
+
+        # 2. NLU 意图解析
+        from voicecalendar.services.nlu_parser import NLUParser
+        nlu = NLUParser(
+            api_key=nlu_cfg.get("api_key", ""),
+            base_url=nlu_cfg.get("base_url", ""),
+            model=nlu_cfg.get("model", "gpt-4o"),
+        )
+        intent = nlu.parse(text)
+
+        # 3. 日历操作
+        calendar_result = None
+        from voicecalendar.services.calendar_backend import CalendarBackend
+
+        calendar = CalendarBackend()
+        if intent.is_add and intent.event:
+            calendar_result = calendar.add_event(intent.event)
+        elif intent.is_delete:
+            calendar_result = calendar.delete_event(intent.delete_keyword or text)
+
+        # 返回结果
+        from voicecalendar.services.pipeline import PipelineResult, PipelineStatus
+        return PipelineResult(
+            success=True,
+            status=PipelineStatus.DONE,
+            raw_text=text,
+            intent=intent,
+            event=intent.event,
+            calendar_result=calendar_result,
+        )
+
+    def _on_pipeline_result(self, result) -> None:
+        """流水线处理完成回调。"""
+        self._handle_pipeline_result(result)
+
+    def _on_pipeline_error(self, error_msg: str) -> None:
+        """流水线处理错误回调。"""
+        self._status_indicator.set_status("error")
+        error_display = get_user_message(Exception(error_msg)) if error_msg else "处理失败"
+        self._result_label.setText(f"❌ {error_display}")
+        self._result_label.setStyleSheet(
+            "QLabel#ResultLabel { color: #FF6B6B; font-size: 13px; padding: 0; background-color: transparent; }"
+        )
+        self._toast(error_display, ToastType.ERROR)
+
+    def _process_mock(self) -> None:
+        """Mock 模式处理流程。"""
         try:
             result = self._pipeline.process_voice()
         except Exception as e:
             self._status_indicator.set_status("error")
-            self._result_label.setText("❌ 处理失败，请稍后重试")
+            self._result_label.setText("❌ 处理失败")
             self._result_label.setStyleSheet(
                 "QLabel#ResultLabel { color: #FF6B6B; font-size: 13px; padding: 0; background-color: transparent; }"
             )
-            self._toast(get_user_message(e) or "处理失败", ToastType.ERROR)
+            self._toast(str(e), ToastType.ERROR)
             return
 
+        self._handle_pipeline_result(result)
+
+    def _handle_pipeline_result(self, result) -> None:
+        """统一处理流水线结果。"""
         if result.success and result.intent:
             self._status_indicator.set_status("success")
+
             if result.intent.is_add and result.intent.event:
                 self._result_label.setText(f"✅ {result.raw_text}")
                 self._result_label.setStyleSheet(
@@ -976,7 +1169,6 @@ class CentralWidget(QWidget):
                 )
                 self._add_event(result.intent.event)
                 self._toast("日程已添加 ✓", ToastType.SUCCESS)
-                # 自动跳回日程页面
                 QTimer.singleShot(1500, lambda: self.switch_page(self.PAGE_SCHEDULE))
             elif result.intent.is_query:
                 self._result_label.setText(f"🔍 {result.raw_text}")
@@ -990,6 +1182,11 @@ class CentralWidget(QWidget):
                     "QLabel#ResultLabel { color: #FF6B6B; font-size: 13px; padding: 0; background-color: transparent; }"
                 )
                 self._toast("已删除日程", ToastType.SUCCESS)
+            else:
+                self._result_label.setText(f"💬 {result.raw_text}")
+                self._result_label.setStyleSheet(
+                    "QLabel#ResultLabel { color: #9AA0A8; font-size: 13px; padding: 0; background-color: transparent; }"
+                )
         else:
             self._status_indicator.set_status("error")
             error_msg = get_user_message(Exception(result.error_message)) if result.error_message else ""
