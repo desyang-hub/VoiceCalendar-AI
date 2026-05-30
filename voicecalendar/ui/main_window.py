@@ -351,7 +351,7 @@ class MainWindow(QMainWindow):
         """处理窗口最大化/还原状态变化。"""
         if event.spontaneous():
             window_state = self.windowState()
-            is_max = bool(window_state & Qt.WindowType.WindowMaximized)
+            is_max = bool(window_state & Qt.WindowState.WindowMaximized)
             self._titlebar.set_maximized(is_max)
         super().changeEvent(event)
 
