@@ -1,0 +1,164 @@
+/* ═══════════════════════════════════════════════════════════
+   VoiceCalendar-Pro — 深色主题样式表 (Dark Theme QSS)
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── 主窗口 ── */
+
+MainWindow {
+    background-color: #1A1D23;
+    border-radius: 16px;
+}
+
+/* ── 标题栏 ── */
+
+TitleBar {
+    background-color: #23272F;
+    border-bottom: 1px solid #2D323C;
+}
+
+TitleBar .title-label {
+    color: #E8EAED;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+TitleBar .window-button {
+    background-color: transparent;
+    border: none;
+    color: #9AA0A8;
+    border-radius: 6px;
+    padding: 4px;
+    icon-size: 16px;
+}
+
+TitleBar .window-button:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #E8EAED;
+}
+
+TitleBar .window-button.close:hover {
+    background-color: #E81123;
+    color: #FFFFFF;
+}
+
+/* ── 内容区域 ── */
+
+ContentArea {
+    background-color: #1A1D23;
+    border: none;
+}
+
+/* ── 侧边栏 ── */
+
+Sidebar {
+    background-color: #23272F;
+    border-right: 1px solid #2D323C;
+}
+
+/* ── Toast 通知 ── */
+
+ToastWidget {
+    background-color: #2D323C;
+    border-radius: 10px;
+    border: none;
+}
+
+ToastWidget .toast-message {
+    color: #E8EAED;
+    font-size: 13px;
+}
+
+ToastWidget.success {
+    border-left: 3px solid #3DDC84;
+}
+
+ToastWidget.error {
+    border-left: 3px solid #FF6B6B;
+}
+
+ToastWidget.warning {
+    border-left: 3px solid #FFB340;
+}
+
+ToastWidget.info {
+    border-left: 3px solid #7DD3FC;
+}
+
+/* ── 录音按钮 ── */
+
+RecordButton {
+    background-color: #6B8AFF;
+    border: none;
+    border-radius: 50%;
+}
+
+RecordButton:hover {
+    background-color: #8DA4FF;
+}
+
+RecordButton:pressed {
+    background-color: #4A6CF7;
+}
+
+RecordButton.recording {
+    background-color: #FF6B6B;
+}
+
+RecordButton.recording:hover {
+    background-color: #FF8888;
+}
+
+/* ── 日历卡片 ── */
+
+EventCard {
+    background-color: #23272F;
+    border: 1px solid #2D323C;
+    border-radius: 12px;
+}
+
+EventCard:hover {
+    border-color: #4B5360;
+    background-color: #2D323C;
+}
+
+EventCard .event-title {
+    color: #E8EAED;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+EventCard .event-time {
+    color: #9AA0A8;
+    font-size: 12px;
+}
+
+/* ── 波形可视化 ── */
+
+WaveformWidget {
+    background-color: transparent;
+    border: none;
+}
+
+/* ── 状态标签 ── */
+
+StatusBadge {
+    border-radius: 12px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+StatusBadge.success {
+    background-color: rgba(61, 220, 132, 0.15);
+    color: #3DDC84;
+}
+
+StatusBadge.error {
+    background-color: rgba(255, 107, 107, 0.15);
+    color: #FF6B6B;
+}
+
+StatusBadge.pending {
+    background-color: rgba(255, 179, 64, 0.15);
+    color: #FFB340;
+}
