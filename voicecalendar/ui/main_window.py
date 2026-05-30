@@ -4,26 +4,27 @@ from __future__ import annotations
 
 设计要点:
 - 无边框窗口 (FramelessWindowHint)
-- 自定义圆角 + 阴影
+- 自定义圆角 + 阴影 (QPainter 绘制，不依赖 QGraphicsDropShadowEffect)
 - 自定义标题栏 (拖拽、最小化、最大化、关闭)
 - 主内容区域布局: 左侧边栏 + 中央内容区
-- 入场动画 (淡入 + 缩放)
+- 入场动画 (淡入)
 - 主题切换支持
 """
 
 from PyQt6.QtCore import (
     Qt,
-    QTimer,
     QPropertyAnimation,
     QEasingCurve,
-    QRect,
+    QPointF,
+    QRectF,
     pyqtSignal,
 )
 from PyQt6.QtGui import (
     QColor,
-    QMouseEvent,
+    QLinearGradient,
     QPainter,
     QPainterPath,
+    QPen,
 )
 from PyQt6.QtWidgets import (
     QMainWindow,
@@ -32,14 +33,13 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QFrame,
-    QGraphicsDropShadowEffect,
 )
 
 from voicecalendar.config import WindowConfig, AnimationConfig
 from voicecalendar.core.theme import ThemeManager, ThemeMode
 from voicecalendar.core.resources import ResourceLoader
 from voicecalendar.ui.titlebar import TitleBar
-from voicecalendar.ui.components.toast import ToastManager, ToastWidget, ToastType
+from voicecalendar.ui.components.toast import ToastManager, ToastType
 
 win_cfg = WindowConfig()
 anim_cfg = AnimationConfig()
@@ -72,7 +72,7 @@ class CentralWidget(QWidget):
         sidebar_layout.setSpacing(12)
 
         # Logo / 品牌名
-        logo_label = QLabel("🎙️")
+        logo_label = QLabel("\U0001f399️")
         logo_label.setStyleSheet("font-size: 28px;")
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sidebar_layout.addWidget(logo_label)
@@ -127,15 +127,15 @@ class CentralWidget(QWidget):
         content_layout.addWidget(welcome_frame)
         content_layout.addStretch()
 
-        # 底部提示
+        # 底部提示卡片
         hint_frame = QFrame()
         hint_layout = QHBoxLayout(hint_frame)
         hint_layout.setSpacing(16)
 
         hints = [
-            (tr("📅"), tr("添加日程")),
-            (tr("🔍"), tr("查询日程")),
-            (tr("🗑️"), tr("删除日程")),
+            ("\U0001f4c5", tr("添加日程")),
+            ("\U0001f50d", tr("查询日程")),
+            ("\U0001f5d1️", tr("删除日程")),
         ]
         for icon, text in hints:
             hint_item = QFrame()
@@ -176,14 +176,18 @@ class MainWindow(QMainWindow):
 
     窗口特性:
     - 无边框 + 自定义圆角裁剪
-    - 全局阴影效果
+    - QPainter 绘制阴影 (不依赖 QGraphicsDropShadowEffect)
     - 自定义标题栏
     - 入场/出场动画
     - 主题切换
     """
 
-    # Signal 定义
     theme_toggled: pyqtSignal = pyqtSignal(ThemeMode)
+
+    # 阴影参数
+    SHADOW_BLUR = 20
+    SHADOW_OFFSET_X = 0
+    SHADOW_OFFSET_Y = 8
 
     def __init__(self) -> None:
         super().__init__()
@@ -198,14 +202,14 @@ class MainWindow(QMainWindow):
     # ──────────────────────────────────────────
 
     def _setup_window(self) -> None:
-        """配置窗口标志、尺寸、圆角。"""
-        # 无边框
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowMinimizeButtonHint
-            | Qt.WindowType.WindowMaximizeButtonHint
-            | Qt.WindowType.WindowCloseButtonHint
-        )
+        """配置窗口标志、尺寸、透明背景。
+
+        注意: 不再使用 QGraphicsDropShadowEffect，
+        阴影在 paintEvent 中用 QPainter 绘制。
+        """
+        # 无边框 + 透明背景
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         # 窗口尺寸
         self.resize(win_cfg.DEFAULT_WIDTH, win_cfg.DEFAULT_HEIGHT)
@@ -214,19 +218,8 @@ class MainWindow(QMainWindow):
         # 窗口标题
         self.setWindowTitle(tr("VoiceCalendar Pro"))
 
-        # 圆角裁剪
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-
-        # 阴影
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(48)
-        shadow.setOffset(win_cfg.SHADOW_OFFSET_X, win_cfg.SHADOW_OFFSET_Y)
-        shadow.setColor(QColor(0, 0, 0, 60))
-        self.setGraphicsEffect(shadow)
-
     def _setup_ui(self) -> None:
         """构建窗口内部布局。"""
-        # 顶层容器 (确保圆角内容不被标题栏遮挡)
         central = QWidget()
         self.setCentralWidget(central)
 
@@ -260,7 +253,6 @@ class MainWindow(QMainWindow):
         combined = loader.get_combined_style(dynamic_colors)
         self.setStyleSheet(combined)
 
-        # 监听主题切换
         theme_mgr.theme_changed.connect(self._on_theme_changed)
 
     def _on_theme_changed(self, mode: ThemeMode) -> None:
@@ -318,28 +310,72 @@ class MainWindow(QMainWindow):
     # ──────────────────────────────────────────
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
-        """自定义绘制：圆角背景。"""
+        """自定义绘制：圆角背景 + 阴影 (QPainter 实现)。
+
+        不使用 QGraphicsDropShadowEffect，避免 Windows
+        UpdateLayeredWindowIndirect 兼容性问题。
+        """
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # 圆角路径
-        path = QPainterPath()
-        path.addRoundedRect(
-            0, 0, self.width(), self.height(),
-            win_cfg.CORNER_RADIUS, win_cfg.CORNER_RADIUS,
-        )
+        radius = win_cfg.CORNER_RADIUS
+        w, h = self.width(), self.height()
 
-        # 背景色
+        # ── 阴影层 (多层渐变模拟真实阴影) ──
+        self._draw_shadow(painter, w, h, radius)
+
+        # ── 主体背景 ──
         theme_mgr = ThemeManager.instance()
         if theme_mgr.is_dark():
             bg_color = QColor(26, 29, 35)
         else:
             bg_color = QColor(255, 255, 255)
 
-        # 裁剪 (使圆角外的区域透明)
-        painter.setClipPath(path)
-        painter.fillRect(path.boundingRect(), bg_color)
+        bg_path = QPainterPath()
+        bg_path.addRoundedRect(
+            0, 0, w, h, radius, radius,
+        )
+        painter.fillPath(bg_path, bg_color)
+
+        # ── 细微边框 ──
+        border_color = QColor(60, 65, 75, 120) if theme_mgr.is_dark() else QColor(200, 200, 200, 80)
+        painter.setPen(QPen(border_color, 1))
+        painter.drawPath(bg_path)
+
         painter.end()
+
+    def _draw_shadow(self, painter: QPainter, w: int, h: int, radius: int) -> None:
+        """用多层渐变绘制圆角阴影。"""
+        blur = self.SHADOW_BLUR
+        ox = self.SHADOW_OFFSET_X
+        oy = self.SHADOW_OFFSET_Y
+
+        # 阴影偏移区域
+        sx = -blur + ox
+        sy = -blur + oy
+        sw = w + 2 * blur
+        sh = h + 2 * blur
+
+        # 多层阴影叠加
+        for i in range(3):
+            alpha = 20 - i * 5
+            expand = blur * (i + 1) * 0.3
+
+            shadow_path = QPainterPath()
+            shadow_path.addRoundedRect(
+                sx - expand, sy - expand,
+                sw + expand * 2, sh + expand * 2,
+                radius + expand * 0.5, radius + expand * 0.5,
+            )
+
+            gradient = QLinearGradient(
+                sx - expand, sy - expand,
+                sx - expand, sy + sh + expand
+            )
+            shadow_c = QColor(0, 0, 0, alpha)
+            gradient.setColorAt(0.0, shadow_c)
+            gradient.setColorAt(1.0, QColor(0, 0, 0, alpha // 2))
+            painter.fillPath(shadow_path, gradient)
 
     def changeEvent(self, event) -> None:  # type: ignore[override]
         """处理窗口最大化/还原状态变化。"""
