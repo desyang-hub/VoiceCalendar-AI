@@ -13,7 +13,7 @@ import logging
 import sys
 import traceback
 
-from PyQt6.QtCore import Qt, QCoreApplication, QObject
+from PyQt6.QtCore import Qt, QCoreApplication
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
@@ -30,17 +30,12 @@ logging.basicConfig(
 logger = logging.getLogger("voicecalendar")
 
 
-class GlobalExceptionHandler(QObject):
+class GlobalExceptionHandler:
     """全局异常处理器 — 防止未捕获异常导致应用崩溃。"""
 
     def __init__(self) -> None:
-        super().__init__()
-
         # 安装 Python 级别异常钩子
         sys.excepthook = self._handle_exception
-
-        # 安装 Qt 级别异常过滤器
-        QCoreApplication.installGlobalShortcutHandler  # type: ignore[attr-defined]
 
     def _handle_exception(
         self,
