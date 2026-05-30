@@ -13,13 +13,13 @@ from PyQt6.QtCore import (
     Qt,
     QTimer,
     QThread,
-    QObject,
     pyqtSignal,
-    pyqtSlot,
-    QSize,
     QPointF,
+    QPoint,
+    QPropertyAnimation,
+    QEasingCurve,
 )
-from PyQt6.QtGui import QColor, QPainter, QFont, QMouseEvent, QPen, QBrush
+from PyQt6.QtGui import QColor, QPainter, QMouseEvent, QBrush
 from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -29,7 +29,6 @@ from PyQt6.QtWidgets import (
     QFrame,
     QPushButton,
     QScrollArea,
-    QSpacerItem,
 )
 
 from voicecalendar.config import WindowConfig
@@ -38,8 +37,9 @@ from voicecalendar.core.resources import ResourceLoader
 from voicecalendar.ui.titlebar import TitleBar
 from voicecalendar.ui.components.toast import ToastManager, ToastType
 from voicecalendar.ui.widgets.waveform import WaveformWidget, StatusIndicator
-from voicecalendar.models.event import CalendarEvent, ParseIntent
-from voicecalendar.services.pipeline import VoiceCalendarPipeline, MockPipeline, PipelineResult
+from voicecalendar.ui.widgets.skeleton import CircularProgress
+from voicecalendar.models.event import CalendarEvent
+from voicecalendar.services.pipeline import MockPipeline
 
 win_cfg = WindowConfig()
 
@@ -124,48 +124,106 @@ class RecordButton(QWidget):
 
 
 class EventCard(QFrame):
-    """日程事件卡片。"""
+    """日程事件卡片 — 左侧颜色指示条 + 时间 + 标题 + 日期标签。"""
+
+    # 事件类型配色
+    EVENT_COLORS = [
+        "#6B8AFF",  # 蓝
+        "#3DDC84",  # 绿
+        "#FFB340",  # 橙
+        "#FF6B6B",  # 红
+        "#7DD3FC",  # 青
+        "#BB86FC",  # 紫
+    ]
 
     def __init__(self, event: CalendarEvent, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._event = event
-        self.setFixedSize(400, 70)
+        self.setFixedHeight(60)
+        self.setMinimumHeight(60)
+        self.setObjectName("EventCard")
         self.setStyleSheet(
-            "QFrame {"
+            "QFrame#EventCard {"
             "    background-color: #23272F;"
             "    border: 1px solid #2D323C;"
-            "    border-radius: 10px;"
+            "    border-radius: 12px;"
             "}"
-            "QFrame:hover {"
+            "QFrame#EventCard:hover {"
             "    border-color: #4B5360;"
-            "    background-color: #2D323C;"
+            "    background-color: #2A2F38;"
             "}"
         )
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 10, 16, 10)
-        layout.setSpacing(12)
+        layout.setContentsMargins(4, 12, 16, 12)
+        layout.setSpacing(14)
 
-        # 时间
+        # 颜色指示条（左侧 3px 圆角条）
+        color = self.EVENT_COLORS[hash(event.title) % len(self.EVENT_COLORS)]
+        indicator = QFrame()
+        indicator.setFixedSize(3, 36)
+        indicator.setStyleSheet(
+            f"QFrame {{ background-color: {color}; border-radius: 2px; }}"
+        )
+        layout.addWidget(indicator)
+
+        # 时间区域
+        time_column = QVBoxLayout()
+        time_column.setSpacing(2)
+
         time_label = QLabel(event.start_time.strftime("%H:%M"))
-        time_label.setStyleSheet("color: #6B8AFF; font-size: 14px; font-weight: 600;")
-        layout.addWidget(time_label)
+        time_label.setStyleSheet(f"color: {color}; font-size: 13px; font-weight: 700;")
+        time_column.addWidget(time_label)
+
+        # 如果有结束时间，显示持续时间
+        if event.end_time:
+            duration = (
+                (event.start_date.toordinal() + event.start_time.hour * 24 + event.start_time.minute)
+                - (event.end_date.toordinal() + event.end_time.hour * 24 + event.end_time.minute)
+            )
+            mins = abs(duration) * 60 if event.end_date == event.start_date else 60
+            duration_label = QLabel(f"{mins}min")
+            duration_label.setStyleSheet("color: #6B7280; font-size: 10px;")
+            time_column.addWidget(duration_label)
+        else:
+            time_column.addStretch()
+
+        time_column.addStretch()
+        layout.addLayout(time_column, 0)
 
         # 分割线
         divider = QFrame()
-        divider.setFixedWidth(1)
+        divider.setFixedSize(1, 36)
         divider.setStyleSheet("background-color: #2D323C;")
         layout.addWidget(divider)
 
-        # 标题
-        title_label = QLabel(event.title)
-        title_label.setStyleSheet("color: #E8EAED; font-size: 14px;")
-        layout.addWidget(title_label, 1)
+        # 标题区域（可伸缩容器）
+        title_container = QWidget()
+        title_column = QVBoxLayout(title_container)
+        title_column.setContentsMargins(0, 0, 0, 0)
+        title_column.setSpacing(4)
+        title_column.addStretch()
 
-        # 日期标签
-        date_label = QLabel(event.start_date.strftime("%m/%d"))
-        date_label.setStyleSheet("color: #5F6B7A; font-size: 12px;")
-        layout.addWidget(date_label)
+        title_label = QLabel(event.title)
+        title_label.setStyleSheet("color: #E8EAED; font-size: 14px; font-weight: 500;")
+        title_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        title_column.addWidget(title_label)
+        title_column.addStretch()
+
+        layout.addWidget(title_container, 1)
+
+        # 日期标签徽章
+        date_badge = QLabel(event.start_date.strftime("%m/%d"))
+        date_badge.setStyleSheet(
+            "color: #6B7280;"
+            "font-size: 11px;"
+            "font-weight: 600;"
+            "background-color: rgba(128, 128, 128, 0.1);"
+            "padding: 4px 8px;"
+            "border-radius: 6px;"
+        )
+        date_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(date_badge)
 
 
 class WorkerThread(QThread):
@@ -201,114 +259,228 @@ class CentralWidget(QWidget):
         self._pipeline = MockPipeline()  # 默认使用 Mock
         self._events: list[CalendarEvent] = []
 
-        main_layout = QVBoxLayout(self)
+        # 水平布局：左侧边栏 + 右侧主内容区
+        main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
         # ── 左侧边栏 ──
         sidebar = self._create_sidebar()
-        main_layout.addWidget(sidebar, 0)
+        main_layout.addWidget(sidebar)
 
-        # ── 主内容区 ──
+        # ── 右侧主内容区 ──
         content = self._create_content()
         main_layout.addWidget(content, 1)
 
     def _create_sidebar(self) -> QFrame:
-        """创建左侧边栏。"""
+        """创建左侧导航边栏。"""
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(240)
+        sidebar.setFixedWidth(72)
         sidebar.setStyleSheet(
             "QFrame#Sidebar {"
-            "    background-color: #23272F;"
+            "    background-color: #1E222A;"
+            "    border: none;"
             "    border-right: 1px solid #2D323C;"
             "}"
         )
 
         layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(20, 24, 20, 24)
-        layout.setSpacing(12)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
 
-        # Logo
-        logo = QLabel("\U0001f399️")
-        logo.setStyleSheet("font-size: 28px;")
+        # ── Logo 区域 ──
+        logo_container = QFrame()
+        logo_container.setFixedHeight(64)
+        logo_layout = QVBoxLayout(logo_container)
+        logo_layout.setContentsMargins(0, 12, 0, 0)
+        logo_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+
+        logo = QLabel("🎙")
+        logo.setStyleSheet("font-size: 24px;")
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(logo)
+        logo_layout.addWidget(logo)
 
-        brand = QLabel(tr("VoiceCalendar"))
-        brand.setStyleSheet("color: #E8EAED; font-size: 16px; font-weight: 700;")
-        brand.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(brand)
+        layout.addWidget(logo_container)
 
-        divider = QFrame()
-        divider.setFixedHeight(1)
-        divider.setStyleSheet("background-color: #2D323C;")
-        layout.addWidget(divider)
+        # ── 导航按钮区 ──
+        nav_container = QFrame()
+        nav_layout = QVBoxLayout(nav_container)
+        nav_layout.setContentsMargins(8, 12, 8, 12)
+        nav_layout.setSpacing(4)
 
+        # 导航按钮
+        nav_items = [
+            ("📅", tr("日程")),
+            ("🎙", tr("语音")),
+            ("📊", tr("统计")),
+            ("⚙", tr("设置")),
+        ]
+
+        self._nav_buttons: list[QPushButton] = []
+        for i, (icon, _label) in enumerate(nav_items):
+            btn = QPushButton(icon)
+            btn.setFixedHeight(48)
+            btn.setCheckable(True)
+            btn.setObjectName("NavButton")
+            btn.setStyleSheet(
+                "QPushButton#NavButton {"
+                "    background-color: transparent;"
+                "    border: none;"
+                "    border-radius: 10px;"
+                "    font-size: 20px;"
+                "    padding: 0;"
+                "}"
+                "QPushButton#NavButton:hover {"
+                "    background-color: rgba(255, 255, 255, 0.06);"
+                "}"
+                "QPushButton#NavButton:checked {"
+                "    background-color: rgba(107, 138, 255, 0.15);"
+                "}"
+            )
+            nav_layout.addWidget(btn)
+            self._nav_buttons.append(btn)
+
+        # 选中第一个按钮
+        if self._nav_buttons:
+            self._nav_buttons[0].setChecked(True)
+
+        layout.addWidget(nav_container)
         layout.addStretch()
 
-        version = QLabel("v0.1.0")
-        version.setStyleSheet("color: #5F6B7A; font-size: 11px;")
-        version.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(version)
+        # ── 底部版本信息 ──
+        version_container = QFrame()
+        version_layout = QVBoxLayout(version_container)
+        version_layout.setContentsMargins(0, 8, 0, 12)
+        version_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        version_dot = QLabel("●")
+        version_dot.setStyleSheet("color: #3DDC84; font-size: 8px;")
+        version_dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        version_layout.addWidget(version_dot)
+
+        layout.addWidget(version_container)
 
         return sidebar
 
     def _create_content(self) -> QFrame:
-        """创建主内容区。"""
+        """创建右侧主内容区 — 上下两栏：语音交互 + 日程列表。"""
         content = QFrame()
         content.setObjectName("MainContent")
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(40, 30, 40, 30)
+        layout.setContentsMargins(32, 24, 32, 24)
         layout.setSpacing(20)
 
-        # ── 状态指示器 ──
+        # ═══════════════════════════════════════
+        # 上栏：语音交互区（波形 + 录音按钮）
+        # ═══════════════════════════════════════
+        voice_section = QFrame()
+        voice_section.setObjectName("VoiceSection")
+        voice_section.setStyleSheet(
+            "QFrame#VoiceSection {"
+            "    background-color: #1E222A;"
+            "    border-radius: 16px;"
+            "    border: 1px solid #2D323C;"
+            "}"
+        )
+        voice_layout = QVBoxLayout(voice_section)
+        voice_layout.setContentsMargins(24, 20, 24, 20)
+        voice_layout.setSpacing(16)
+
+        # 状态指示器（居中）
+        header_layout = QHBoxLayout()
+        header_layout.addStretch()
         self._status_indicator = StatusIndicator()
-        layout.addWidget(self._status_indicator)
+        header_layout.addWidget(self._status_indicator)
+        header_layout.addStretch()
+        voice_layout.addLayout(header_layout)
 
-        # ── 波形可视化 ──
+        # 波形可视化区域
+        waveform_container = QFrame()
+        waveform_container.setFixedHeight(140)
+        waveform_container.setStyleSheet("background: transparent;")
+        waveform_container_layout = QVBoxLayout(waveform_container)
+        waveform_container_layout.setContentsMargins(0, 0, 0, 0)
+
         self._waveform = WaveformWidget()
-        self._waveform.setFixedHeight(120)
-        layout.addWidget(self._waveform)
+        self._waveform.setObjectName("WaveformWidget")
+        waveform_container_layout.addWidget(self._waveform)
+        voice_layout.addWidget(waveform_container, 1)
 
-        # ── 录音按钮 ──
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
-
+        # 录音按钮（居中）
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
         self._record_btn = RecordButton()
         self._record_btn.recording_started.connect(self._on_recording_started)
         self._record_btn.recording_stopped.connect(self._on_recording_stopped)
-        btn_layout.addWidget(self._record_btn)
+        btn_row.addWidget(self._record_btn)
+        btn_row.addStretch()
+        voice_layout.addLayout(btn_row)
 
-        btn_layout.addStretch()
-        layout.addLayout(btn_layout)
+        layout.addWidget(voice_section, 0)
 
-        # ── 识别结果 ──
+        # ═══════════════════════════════════════
+        # 中栏：识别结果提示
+        # ═══════════════════════════════════════
         self._result_label = QLabel("")
+        self._result_label.setObjectName("ResultLabel")
         self._result_label.setStyleSheet(
-            "color: #E8EAED; font-size: 14px; padding: 12px;"
-            "background-color: #23272F; border-radius: 8px;"
+            "QLabel#ResultLabel {"
+            "    color: #9AA0A8;"
+            "    font-size: 13px;"
+            "    padding: 0;"
+            "    background-color: transparent;"
+            "}"
         )
         self._result_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._result_label.setWordWrap(True)
-        layout.addWidget(self._result_label)
+        layout.addWidget(self._result_label, 0)
 
-        # ── 日程列表 ──
-        list_header = QLabel(tr("今日日程"))
-        list_header.setStyleSheet("color: #E8EAED; font-size: 16px; font-weight: 600;")
-        layout.addWidget(list_header)
+        # ═══════════════════════════════════════
+        # 下栏：今日日程列表
+        # ═══════════════════════════════════════
+        calendar_section = QFrame()
+        calendar_section.setObjectName("CalendarSection")
+        calendar_layout = QVBoxLayout(calendar_section)
+        calendar_layout.setContentsMargins(0, 0, 0, 0)
+        calendar_layout.setSpacing(12)
 
+        # 标题栏
+        title_row = QHBoxLayout()
+        date_today = QLabel(date.today().strftime("%Y/%m/%d"))
+        date_today.setStyleSheet("color: #6B8AFF; font-size: 13px; font-weight: 600;")
+
+        calendar_title = QLabel(tr("今日日程"))
+        calendar_title.setStyleSheet("color: #E8EAED; font-size: 15px; font-weight: 600;")
+
+        title_row.addWidget(calendar_title)
+        title_row.addWidget(date_today)
+        title_row.addStretch()
+
+        calendar_layout.addLayout(title_row)
+
+        # 可滚动事件列表
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("border: none; background: transparent;")
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(
+            "QScrollArea {"
+            "    border: none;"
+            "    background: transparent;"
+            "}"
+        )
 
         self._event_list = QFrame()
+        self._event_list.setStyleSheet("background: transparent;")
         self._event_layout = QVBoxLayout(self._event_list)
+        self._event_layout.setContentsMargins(0, 0, 0, 0)
         self._event_layout.setSpacing(8)
         self._event_layout.addStretch()
 
         scroll.setWidget(self._event_list)
-        layout.addWidget(scroll, 1)
+        calendar_layout.addWidget(scroll, 1)
+
+        layout.addWidget(calendar_section, 1)
 
         # 加载示例事件
         self._load_sample_events()
@@ -335,14 +507,33 @@ class CentralWidget(QWidget):
         self._status_indicator.set_status("recording")
         self._waveform.set_recording(True)
         self._result_label.setText("")
+        self._result_label.setStyleSheet(
+            "QLabel#ResultLabel {"
+            "    color: #9AA0A8;"
+            "    font-size: 13px;"
+            "    padding: 0;"
+            "    background-color: transparent;"
+            "}"
+        )
 
     def _on_recording_stopped(self) -> None:
         """录音停止 — 触发处理流程。"""
         self._status_indicator.set_status("processing")
         self._waveform.set_recording(False)
 
+        # 显示处理中状态
+        self._result_label.setText("⏳ 正在识别语音...")
+        self._result_label.setStyleSheet(
+            "QLabel#ResultLabel {"
+            "    color: #FFB340;"
+            "    font-size: 13px;"
+            "    padding: 0;"
+            "    background-color: transparent;"
+            "}"
+        )
+
         # 模拟处理 (实际项目中应在 QThread 中执行)
-        QTimer.singleShot(500, self._process_voice)
+        QTimer.singleShot(1200, self._process_voice)
 
     def _process_voice(self) -> None:
         """处理语音指令。"""
@@ -350,24 +541,85 @@ class CentralWidget(QWidget):
 
         if result.success and result.intent:
             self._status_indicator.set_status("success")
-            self._result_label.setText(f"🎯 {result.raw_text}")
 
             if result.intent.is_add and result.intent.event:
+                self._result_label.setText(f"✅ {result.raw_text}")
+                self._result_label.setStyleSheet(
+                    "QLabel#ResultLabel {"
+                    "    color: #3DDC84;"
+                    "    font-size: 13px;"
+                    "    padding: 0;"
+                    "    background-color: transparent;"
+                    "}"
+                )
                 self._add_event(result.intent.event)
                 self._toast("日程已添加 ✓", ToastType.SUCCESS)
             elif result.intent.is_query:
+                self._result_label.setText(f"🔍 {result.raw_text}")
+                self._result_label.setStyleSheet(
+                    "QLabel#ResultLabel {"
+                    "    color: #7DD3FC;"
+                    "    font-size: 13px;"
+                    "    padding: 0;"
+                    "    background-color: transparent;"
+                    "}"
+                )
                 self._toast("查询完成", ToastType.INFO)
             elif result.intent.is_delete:
+                self._result_label.setText(f"🗑 {result.raw_text}")
+                self._result_label.setStyleSheet(
+                    "QLabel#ResultLabel {"
+                    "    color: #FF6B6B;"
+                    "    font-size: 13px;"
+                    "    padding: 0;"
+                    "    background-color: transparent;"
+                    "}"
+                )
                 self._toast("已删除日程", ToastType.SUCCESS)
         else:
             self._status_indicator.set_status("error")
+            self._result_label.setText("❌ 识别失败，请重试")
+            self._result_label.setStyleSheet(
+                "QLabel#ResultLabel {"
+                "    color: #FF6B6B;"
+                "    font-size: 13px;"
+                "    padding: 0;"
+                "    background-color: transparent;"
+                "}"
+            )
             self._toast("识别失败", ToastType.ERROR)
 
     def _add_event(self, event: CalendarEvent) -> None:
-        """添加事件到列表。"""
+        """添加事件到列表 — 带滑入动画。"""
         card = EventCard(event)
+        card.show()
+
+        # 先隐藏在顶部偏移位置
+        target_y = 0
+        card.move(card.x(), -card.height())
+
+        # 插入布局
         self._event_layout.insertWidget(0, card)
         self._events.append(event)
+
+        # 滑入动画（从上方滑入）
+        anim = QPropertyAnimation(card, b"pos")
+        anim.setDuration(300)
+        anim.setEasingCurve(QEasingCurve.Type.OutBack)
+        # 获取插入后的实际位置
+        QTimer.singleShot(10, lambda: self._animate_card_entry(card))
+
+    def _animate_card_entry(self, card: EventCard) -> None:
+        """卡片入场动画。"""
+        target_pos = card.pos()
+        start_pos = QPointF(target_pos.x(), target_pos.y() - 40)
+
+        anim = QPropertyAnimation(card, b"pos")
+        anim.setDuration(350)
+        anim.setEasingCurve(QEasingCurve.Type.OutBack)
+        anim.setStartValue(start_pos.toPoint())
+        anim.setEndValue(target_pos)
+        anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
 
     def _toast(self, message: str, toast_type: ToastType) -> None:
         """显示 Toast 通知。"""
