@@ -45,6 +45,7 @@ from voicecalendar.ui.widgets.skeleton import CircularProgress
 from voicecalendar.models.event import CalendarEvent
 from voicecalendar.services.pipeline import MockPipeline
 from voicecalendar.services.errors import get_user_message
+from voicecalendar.core import settings as settings_module
 
 win_cfg = WindowConfig()
 
@@ -640,79 +641,68 @@ class CentralWidget(QWidget):
         settings_layout.setContentsMargins(0, 0, 0, 0)
         settings_layout.setSpacing(20)
 
+        # 加载当前配置
+        asr_cfg = settings_module.get_asr_config()
+        nlu_cfg = settings_module.get_nlu_config()
+
         # ── ASR 配置 ──
-        asr_section = self._create_settings_section(
+        asr_section = self._create_api_section(
             "🎤 语音识别 (ASR)",
-            [
-                ("API Key", "OPENAI_API_KEY", "sk-xxx"),
-                ("Base URL", "OPENAI_BASE_URL", "https://api.openai.com/v1"),
-                ("模型", None, "whisper-1", True),
-            ],
+            asr_cfg,
         )
         settings_layout.addWidget(asr_section)
 
         # ── LLM 配置 ──
-        llm_section = self._create_settings_section(
+        nlu_section = self._create_api_section(
             "🧠 意图解析 (LLM)",
-            [
-                ("API Key", None, "sk-xxx"),
-                ("Base URL", None, "https://api.openai.com/v1"),
-                ("模型", None, "gpt-4o", True),
-            ],
+            nlu_cfg,
         )
-        settings_layout.addWidget(llm_section)
+        settings_layout.addWidget(nlu_section)
 
-        # ── 主题配置 ──
-        theme_section = self._create_settings_section(
-            "🎨 界面",
-            [],
-        )
-        # 主题切换按钮
-        theme_row = QHBoxLayout()
-        theme_row.setSpacing(12)
+        # ── 界面配置 ──
+        ui_section = self._create_ui_section()
+        settings_layout.addWidget(ui_section)
 
-        theme_label = QLabel("深色模式")
-        theme_label.setStyleSheet("color: #E8EAED; font-size: 13px;")
-        theme_row.addWidget(theme_label)
-        theme_row.addStretch()
-
-        self._theme_toggle = QCheckBox()
-        self._theme_toggle.setChecked(True)
-        self._theme_toggle.setStyleSheet(
-            "QCheckBox::indicator {"
-            "    width: 40px; height: 22px;"
-            "    border-radius: 11px;"
-            "    background-color: #2D323C;"
-            "}"
-            "QCheckBox::indicator:checked {"
+        # ── 保存按钮 ──
+        save_btn = QPushButton("保存设置")
+        save_btn.setFixedHeight(42)
+        save_btn.setStyleSheet(
+            "QPushButton {"
             "    background-color: #6B8AFF;"
+            "    border: none;"
+            "    border-radius: 8px;"
+            "    color: #FFFFFF;"
+            "    font-size: 14px;"
+            "    font-weight: 600;"
             "}"
-            "QCheckBox {"
-            "    color: #E8EAED;"
-            "    font-size: 13px;"
+            "QPushButton:hover {"
+            "    background-color: #8DA4FF;"
+            "}"
+            "QPushButton:pressed {"
+            "    background-color: #4A6CF7;"
             "}"
         )
-        self._theme_toggle.toggled.connect(self._on_theme_toggled)
-        theme_row.addWidget(self._theme_toggle)
-        theme_section.layout().addLayout(theme_row)
+        save_btn.clicked.connect(self._save_settings)
+        settings_layout.addWidget(save_btn)
 
-        settings_layout.addWidget(theme_section)
+        # 状态提示
+        self._settings_status = QLabel("")
+        self._settings_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._settings_status.setStyleSheet("color: #6B7280; font-size: 12px;")
+        settings_layout.addWidget(self._settings_status)
+
         settings_layout.addStretch()
-
         scroll.setWidget(settings_container)
         layout.addWidget(scroll, 1)
 
         return page
 
-    def _create_settings_section(
+    def _create_api_section(
         self,
         title: str,
-        fields: list,
+        config: dict[str, str],
     ) -> QFrame:
-        """创建设置卡片。
-
-        fields: list of (label_text, env_var_name, placeholder, is_combo)
-        """
+        """创建 API 配置卡片。"""
         card = QFrame()
         card.setStyleSheet(
             "QFrame {"
@@ -725,69 +715,196 @@ class CentralWidget(QWidget):
         card_layout.setContentsMargins(20, 16, 20, 16)
         card_layout.setSpacing(12)
 
-        # 标题
         sec_title = QLabel(title)
         sec_title.setStyleSheet("color: #E8EAED; font-size: 14px; font-weight: 600;")
         card_layout.addWidget(sec_title)
 
-        for field_data in fields:
-            is_combo = len(field_data) == 4 and field_data[3]
-            if is_combo:
-                label_text, _, placeholder, _ = field_data
-                combo_values = placeholder.split(",")
-            else:
-                label_text, _, placeholder = field_data
-                combo_values = None
+        # API Key
+        key_row = QHBoxLayout()
+        key_row.setSpacing(12)
+        key_label = QLabel("API Key")
+        key_label.setStyleSheet("color: #9AA0A8; font-size: 13px; min-width: 70px;")
+        key_row.addWidget(key_label)
 
-            row = QHBoxLayout()
-            row.setSpacing(12)
+        key_input = QLineEdit()
+        key_input.setObjectName(f"{title}_api_key")
+        key_input.setText(config.get("api_key", ""))
+        key_input.setPlaceholderText("sk-xxx (留空则读取环境变量 OPENAI_API_KEY)")
+        key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        key_input.setStyleSheet(self._input_style())
+        key_row.addWidget(key_input, 1)
+        card_layout.addLayout(key_row)
 
-            lbl = QLabel(label_text)
-            lbl.setStyleSheet("color: #9AA0A8; font-size: 13px; min-width: 70px;")
-            row.addWidget(lbl)
+        # Base URL
+        url_row = QHBoxLayout()
+        url_row.setSpacing(12)
+        url_label = QLabel("Base URL")
+        url_label.setStyleSheet("color: #9AA0A8; font-size: 13px; min-width: 70px;")
+        url_row.addWidget(url_label)
 
-            if combo_values:
-                combo = QComboBox()
-                for v in combo_values:
-                    combo.addItem(v.strip())
-                combo.setCurrentText(placeholder.strip())
-                combo.setStyleSheet(
-                    "QComboBox {"
-                    "    background-color: #2D323C;"
-                    "    border: 1px solid #363C47;"
-                    "    border-radius: 6px;"
-                    "    padding: 6px 10px;"
-                    "    color: #E8EAED;"
-                    "    font-size: 13px;"
-                    "}"
-                    "QComboBox::drop-down {"
-                    "    border: none;"
-                    "}"
-                    "QComboBox QAbstractItemView {"
-                    "    background-color: #2D323C;"
-                    "    color: #E8EAED;"
-                    "    selection-background-color: #6B8AFF;"
-                    "}"
-                )
-                row.addWidget(combo, 1)
-            else:
-                line = QLineEdit()
-                line.setPlaceholderText(placeholder)
-                line.setStyleSheet(
-                    "QLineEdit {"
-                    "    background-color: #2D323C;"
-                    "    border: 1px solid #363C47;"
-                    "    border-radius: 6px;"
-                    "    padding: 6px 10px;"
-                    "    color: #E8EAED;"
-                    "    font-size: 13px;"
-                    "}"
-                )
-                row.addWidget(line, 1)
+        url_input = QLineEdit()
+        url_input.setObjectName(f"{title}_base_url")
+        url_input.setText(config.get("base_url", ""))
+        url_input.setPlaceholderText("https://api.openai.com/v1")
+        url_input.setStyleSheet(self._input_style())
+        url_row.addWidget(url_input, 1)
+        card_layout.addLayout(url_row)
 
-            card_layout.addLayout(row)
+        # 模型
+        model_row = QHBoxLayout()
+        model_row.setSpacing(12)
+        model_label = QLabel("模型")
+        model_label.setStyleSheet("color: #9AA0A8; font-size: 13px; min-width: 70px;")
+        model_row.addWidget(model_label)
+
+        model_combo = QComboBox()
+        model_combo.setObjectName(f"{title}_model")
+        if "ASR" in title:
+            models = ["whisper-1", "whisper-large", "whisper-medium"]
+        else:
+            models = ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo"]
+        for m in models:
+            model_combo.addItem(m)
+        current = config.get("model", "")
+        if current:
+            idx = model_combo.findText(current)
+            if idx >= 0:
+                model_combo.setCurrentIndex(idx)
+        model_combo.setStyleSheet(self._combo_style())
+        model_row.addWidget(model_combo, 1)
+        card_layout.addLayout(model_row)
+
+        # 连接状态指示
+        status_row = QHBoxLayout()
+        status_row.addStretch()
+        status_dot = QLabel("●")
+        status_dot.setStyleSheet("color: #FFB340; font-size: 10px;")
+        status_row.addWidget(status_dot)
+        status_text = QLabel("未验证")
+        status_text.setStyleSheet("color: #6B7280; font-size: 11px;")
+        status_row.addWidget(status_text)
+        card_layout.addLayout(status_row)
 
         return card
+
+    @staticmethod
+    def _input_style() -> str:
+        return (
+            "QLineEdit {"
+            "    background-color: #2D323C;"
+            "    border: 1px solid #363C47;"
+            "    border-radius: 6px;"
+            "    padding: 6px 10px;"
+            "    color: #E8EAED;"
+            "    font-size: 13px;"
+            "}"
+            "QLineEdit:focus {"
+            "    border-color: #6B8AFF;"
+            "}"
+        )
+
+    @staticmethod
+    def _combo_style() -> str:
+        return (
+            "QComboBox {"
+            "    background-color: #2D323C;"
+            "    border: 1px solid #363C47;"
+            "    border-radius: 6px;"
+            "    padding: 6px 10px;"
+            "    color: #E8EAED;"
+            "    font-size: 13px;"
+            "}"
+            "QComboBox:focus {"
+            "    border-color: #6B8AFF;"
+            "}"
+            "QComboBox::drop-down { border: none; }"
+            "QComboBox QAbstractItemView {"
+            "    background-color: #2D323C;"
+            "    color: #E8EAED;"
+            "    selection-background-color: #6B8AFF;"
+            "    border: 1px solid #363C47;"
+            "}"
+        )
+
+    def _create_ui_section(self) -> QFrame:
+        card = QFrame()
+        card.setStyleSheet(
+            "QFrame {"
+            "    background-color: #23272F;"
+            "    border: 1px solid #2D323C;"
+            "    border-radius: 12px;"
+            "}"
+        )
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(20, 16, 20, 16)
+        card_layout.setSpacing(12)
+
+        sec_title = QLabel("🎨 界面")
+        sec_title.setStyleSheet("color: #E8EAED; font-size: 14px; font-weight: 600;")
+        card_layout.addWidget(sec_title)
+
+        theme_row = QHBoxLayout()
+        theme_row.setSpacing(12)
+
+        theme_label = QLabel("深色模式")
+        theme_label.setStyleSheet("color: #E8EAED; font-size: 13px;")
+        theme_row.addWidget(theme_label)
+        theme_row.addStretch()
+
+        self._theme_toggle = QCheckBox()
+        self._theme_toggle.setChecked(settings_module.get_dark_mode())
+        self._theme_toggle.setStyleSheet(
+            "QCheckBox::indicator {"
+            "    width: 40px; height: 22px;"
+            "    border-radius: 11px;"
+            "    background-color: #2D323C;"
+            "}"
+            "QCheckBox::indicator:checked {"
+            "    background-color: #6B8AFF;"
+            "}"
+            "QCheckBox { color: #E8EAED; font-size: 13px; }"
+        )
+        self._theme_toggle.toggled.connect(self._on_theme_toggled)
+        theme_row.addWidget(self._theme_toggle)
+        card_layout.addLayout(theme_row)
+
+        return card
+
+    def _save_settings(self) -> None:
+        """保存设置到本地文件。"""
+        settings_data = settings_module.load_settings()
+
+        # 收集 ASR 配置
+        for child in self._settings_page.findChildren(QLineEdit):
+            if "ASR" in child.objectName() and "api_key" in child.objectName():
+                settings_data["asr"]["api_key"] = child.text()
+            elif "ASR" in child.objectName() and "base_url" in child.objectName():
+                settings_data["asr"]["base_url"] = child.text()
+        for child in self._settings_page.findChildren(QComboBox):
+            if "ASR" in child.objectName() and "model" in child.objectName():
+                settings_data["asr"]["model"] = child.currentText()
+
+        # 收集 NLU 配置
+        for child in self._settings_page.findChildren(QLineEdit):
+            if "LLM" in child.objectName() and "api_key" in child.objectName():
+                settings_data["nlu"]["api_key"] = child.text()
+            elif "LLM" in child.objectName() and "base_url" in child.objectName():
+                settings_data["nlu"]["base_url"] = child.text()
+        for child in self._settings_page.findChildren(QComboBox):
+            if "LLM" in child.objectName() and "model" in child.objectName():
+                settings_data["nlu"]["model"] = child.currentText()
+
+        # 界面配置
+        settings_data["ui"]["dark_mode"] = self._theme_toggle.isChecked()
+
+        settings_module.save_settings(settings_data)
+
+        self._settings_status.setText("✅ 设置已保存")
+        self._settings_status.setStyleSheet("color: #3DDC84; font-size: 12px;")
+        self._toast("设置已保存", ToastType.SUCCESS)
+
+        # 隐藏后清除提示
+        QTimer.singleShot(3000, lambda: self._settings_status.setText(""))
 
     def _on_theme_toggled(self, checked: bool) -> None:
         """主题切换回调。"""
