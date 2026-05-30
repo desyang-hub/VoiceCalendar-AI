@@ -159,8 +159,17 @@ class AudioCapture:
 
         return self._output_path
 
-    def _audio_callback(self, samples: "import numpy as np; np.ndarray", frame_info) -> None:  # type: ignore[return]
-        """音频数据回调。"""
+    def _audio_callback(
+        self,
+        samples: "import numpy as np; np.ndarray",
+        frame_count: int,
+        time_info,
+        status,
+    ) -> None:
+        """音频数据回调。
+
+        sounddevice 传入 4 个参数: (data, frame_count, time_info, status)
+        """
         import numpy as np
 
         # 计算 RMS 音量

@@ -45,9 +45,9 @@ SYSTEM_PROMPT = """\
 你必须且只输出一个 JSON 对象，不要包含任何其他内容。格式如下：
 
 ```json
-{
+{{
     "action": "add|query|delete|list",
-    "event": {
+    "event": {{
         "title": "事件标题",
         "start_date": "YYYY-MM-DD",
         "start_time": "HH:MM",
@@ -57,12 +57,12 @@ SYSTEM_PROMPT = """\
         "recurrence_count": 0,
         "location": "地点",
         "reminder_minutes": 15
-    },
+    }},
     "query_date": "YYYY-MM-DD",
     "query_keyword": "关键词",
     "delete_keyword": "关键词",
     "confidence": 0.95
-}
+}}
 ```
 
 ## 时间归一化规则
@@ -372,7 +372,7 @@ class NLUParser:
         )
 
         # 构建事件
-        if action == ParseIntent.Action.ADD and "event" in data and data["event"]:
+        if action == ParseIntent.Action.ADD and "event" in data and isinstance(data.get("event"), dict):
             event_data = data["event"]
             intent.event = self._build_event(event_data, ref_date)
 
@@ -417,18 +417,16 @@ class NLUParser:
             end_date = datetime.fromisoformat(data["end_date"]).date()
 
         return CalendarEvent(
-            title=data.get("title", "新事件"),
+            title=data.get("title") or "新事件",
             start_date=start_date,
             start_time=start_time,
             end_date=end_date,
             end_time=end_time,
-            description=data.get("description", ""),
-            recurrence=EventRecurrence(data.get("recurrence", "none"))
-            if data.get("recurrence")
-            else EventRecurrence.NONE,
-            recurrence_count=data.get("recurrence_count", 0),
-            location=data.get("location", ""),
-            reminder_minutes=data.get("reminder_minutes", 15),
+            description=data.get("description") or "",
+            recurrence=EventRecurrence(data.get("recurrence") or "none"),
+            recurrence_count=data.get("recurrence_count") or 0,
+            location=data.get("location") or "",
+            reminder_minutes=data.get("reminder_minutes") if data.get("reminder_minutes") is not None else 15,
         )
 
     def _quick_parse(self, text: str, ref_date: Optional[date] = None) -> ParseIntent:
