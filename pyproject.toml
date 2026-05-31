@@ -58,6 +58,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["F401"]  # 测试文件中 unused import 是合理的 (pytest fixtures)
+"voicecalendar/models/**" = ["UP007", "UP037"]  # pydantic 在 Python 3.9 下：X | None 不兼容，前向引用需要引号
 
 [tool.mypy]
 python_version = "3.9"

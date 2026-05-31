@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 from enum import Enum
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -40,8 +41,8 @@ class CalendarEvent(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     start_date: date
     start_time: time = time(9, 0)
-    end_date: date | None = None
-    end_time: time | None = None
+    end_date: Optional[date] = None
+    end_time: Optional[time] = None
     description: str = ""
     recurrence: EventRecurrence = EventRecurrence.NONE
     recurrence_count: int = 0
@@ -107,8 +108,8 @@ class ParseIntent(BaseModel):
         UNKNOWN = "unknown"
 
     action: ParseIntent.Action = Action.UNKNOWN
-    event: CalendarEvent | None = None
-    query_date: date | None = None
+    event: Optional["CalendarEvent"] = None
+    query_date: Optional[date] = None
     query_keyword: str = ""
     delete_keyword: str = ""
     raw_text: str = ""
