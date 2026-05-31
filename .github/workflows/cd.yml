@@ -1,0 +1,243 @@
+name: CD - Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag (e.g. v0.1.0)"
+        required: true
+        type: string
+
+jobs:
+  # ── 各平台构建 ──
+  build-windows:
+    name: Build Windows (x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: win-pip-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            win-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[build]"
+          pip install dashscope
+
+      - name: Build with PyInstaller
+        run: |
+          $addDataValue = 'voicecalendar/resources' + ';' + 'voicecalendar/resources'
+          & pyinstaller `
+            --name=VoiceCalendar-Pro `
+            --onefile `
+            --windowed `
+            --icon=NONE `
+            --add-data $addDataValue `
+            --hidden-import=PyQt6 `
+            --hidden-import=PyQt6.QtWidgets `
+            --hidden-import=PyQt6.QtCore `
+            --hidden-import=PyQt6.QtGui `
+            --hidden-import=openai `
+            --hidden-import=ics `
+            --hidden-import=pydantic `
+            --hidden-import=dashscope `
+            --collect-all PyQt6 `
+            --exclude PyQt5 `
+            --exclude PySide2 `
+            --exclude PySide6 `
+            --distpath dist `
+            voicecalendar/main.py
+
+      - name: Rename artifact
+        run: |
+          Rename-Item "dist/VoiceCalendar-Pro.exe" "VoiceCalendar-Pro-Windows-x64.exe"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: dist/VoiceCalendar-Pro-Windows-x64.exe
+          retention-days: 14
+
+  build-linux:
+    name: Build Linux (x64 AppImage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-x11-0 \
+            libxkbcommon0 \
+            libegl1 \
+            libgl1 \
+            libglx-mesa0 \
+            libxcb-cursor0 \
+            libpulse0 \
+            fuse \
+            libfuse2
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[build]"
+          pip install dashscope
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller \
+            --name=VoiceCalendar-Pro \
+            --onefile \
+            --windowed \
+            --add-data "voicecalendar/resources:voicecalendar/resources" \
+            --hidden-import=PyQt6 \
+            --hidden-import=PyQt6.QtWidgets \
+            --hidden-import=PyQt6.QtCore \
+            --hidden-import=PyQt6.QtGui \
+            --hidden-import=openai \
+            --hidden-import=ics \
+            --hidden-import=pydantic \
+            --hidden-import=dashscope \
+            --collect-all PyQt6 \
+            --exclude PyQt5 \
+            --exclude PySide2 \
+            --exclude PySide6 \
+            --distpath dist \
+            voicecalendar/main.py
+
+      - name: Rename artifact
+        run: mv dist/VoiceCalendar-Pro dist/VoiceCalendar-Pro-Linux-x64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64
+          path: dist/VoiceCalendar-Pro-Linux-x64
+          retention-days: 14
+
+  build-macos:
+    name: Build macOS (Universal)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[build]"
+          pip install dashscope
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller \
+            --name=VoiceCalendar-Pro \
+            --onefile \
+            --windowed \
+            --add-data "voicecalendar/resources:voicecalendar/resources" \
+            --hidden-import=PyQt6 \
+            --hidden-import=PyQt6.QtWidgets \
+            --hidden-import=PyQt6.QtCore \
+            --hidden-import=PyQt6.QtGui \
+            --hidden-import=openai \
+            --hidden-import=ics \
+            --hidden-import=pydantic \
+            --hidden-import=dashscope \
+            --collect-all PyQt6 \
+            --exclude PyQt5 \
+            --exclude PySide2 \
+            --exclude PySide6 \
+            --distpath dist \
+            voicecalendar/main.py
+
+      - name: Create tarball
+        run: |
+          cd dist
+          tar -czf VoiceCalendar-Pro-macOS-universal.tar.gz VoiceCalendar-Pro
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal
+          path: dist/VoiceCalendar-Pro-macOS-universal.tar.gz
+          retention-days: 14
+
+  # ── 发布 Release ──
+  release:
+    name: Create GitHub Release
+    needs: [build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.release_tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts/ -type f
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Release ${{ steps.tag.outputs.tag }}"
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/windows-x64/VoiceCalendar-Pro-Windows-x64.exe
+            artifacts/linux-x64/VoiceCalendar-Pro-Linux-x64
+            artifacts/macos-universal/VoiceCalendar-Pro-macOS-universal.tar.gz
+
+      - name: Calculate checksums
+        run: |
+          cd artifacts
+          echo "### Checksums" >> ../CHECKSUMS.md
+          for f in windows-x64/*.exe linux-x64/* macos-universal/*.tar.gz; do
+            sha256sum "$f" >> ../CHECKSUMS.md
+          done
+
+      - name: Upload checksums
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: CHECKSUMS.md
