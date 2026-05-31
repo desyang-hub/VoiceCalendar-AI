@@ -7,25 +7,23 @@ from __future__ import annotations
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 from voicecalendar.models.event import CalendarEvent, ParseIntent
+from voicecalendar.services.asr_service import ASRService
 from voicecalendar.services.audio_capture import AudioCapture
-from voicecalendar.services.asr_service import ASRService, TranscriptionResult
-from voicecalendar.services.nlu_parser import NLUParser
 from voicecalendar.services.calendar_backend import CalendarBackend, CalendarOperationResult
 from voicecalendar.services.errors import (
-    VoiceCalendarError,
     ASRError,
-    NLUErrors,
     CalendarError,
     NetworkError,
+    NLUErrors,
     RequestTimeout,
     get_user_message,
 )
+from voicecalendar.services.nlu_parser import NLUParser
 
 logger = logging.getLogger("voicecalendar")
 
@@ -49,10 +47,10 @@ class PipelineResult:
     success: bool
     status: PipelineStatus = PipelineStatus.DONE
     raw_text: str = ""
-    intent: Optional[ParseIntent] = None
-    event: Optional[CalendarEvent] = None
-    calendar_result: Optional[CalendarOperationResult] = None
-    audio_path: Optional[str] = None
+    intent: ParseIntent | None = None
+    event: CalendarEvent | None = None
+    calendar_result: CalendarOperationResult | None = None
+    audio_path: str | None = None
     error_message: str = ""
 
 
@@ -75,11 +73,11 @@ class VoiceCalendarPipeline:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
         whisper_model: str = "whisper-1",
         llm_model: str = "gpt-4o",
-        storage_dir: Optional[str] = None,
+        storage_dir: str | None = None,
     ) -> None:
         # 初始化各服务
         self.audio = AudioCapture()
@@ -115,7 +113,7 @@ class VoiceCalendarPipeline:
         self._status = PipelineStatus.IDLE
 
         # 1. 录音 (可选)
-        audio_path: Optional[Path] = None
+        audio_path: Path | None = None
         if use_recording:
             try:
                 self._status = PipelineStatus.RECORDING
@@ -219,7 +217,7 @@ class VoiceCalendarPipeline:
 
         # 4. 日历操作
         self._status = PipelineStatus.SAVING
-        calendar_result: Optional[CalendarOperationResult] = None
+        calendar_result: CalendarOperationResult | None = None
 
         try:
             if intent.is_add and intent.event:
@@ -296,7 +294,7 @@ class VoiceCalendarPipeline:
         """列出本周日程。"""
         return self.calendar.list_week_events()
 
-    def save_ics(self, output_path: Optional[str] = None) -> CalendarOperationResult:
+    def save_ics(self, output_path: str | None = None) -> CalendarOperationResult:
         """保存当前所有事件为 ICS 文件。"""
         events = self.calendar.load_events()
         return self.calendar.create_ics_file(events, output_path)

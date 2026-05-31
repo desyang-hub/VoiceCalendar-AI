@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """NLU 意图解析测试脚本 - 使用真实 LLM 验证各种语音输入。
 
 用法:
@@ -8,9 +7,9 @@
     python tests/test_nlu.py --debug   # 打印原始 LLM 返回
 """
 
-import sys
-import json
 import argparse
+import json
+import sys
 from datetime import date
 from pathlib import Path
 
@@ -171,8 +170,9 @@ def main():
         print("=" * 70)
         print("原始 LLM 响应调试")
         print("=" * 70)
-        from voicecalendar.services.nlu_parser import SYSTEM_PROMPT
         import datetime
+
+        from voicecalendar.services.nlu_parser import SYSTEM_PROMPT
 
         for inp, expect in [("明天下午三点开会", "add"),
                              ("今天有什么安排", "query"),

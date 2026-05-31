@@ -1,12 +1,12 @@
 """配置模块测试。"""
 
 from voicecalendar.config import (
-    WindowConfig,
     AnimationConfig,
-    ToastConfig,
     AudioConfig,
-    LightThemeColors,
     DarkThemeColors,
+    LightThemeColors,
+    ToastConfig,
+    WindowConfig,
 )
 
 

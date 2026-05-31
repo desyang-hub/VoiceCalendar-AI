@@ -5,11 +5,9 @@ from __future__ import annotations
 所有自定义 Widget 应继承此基类而非直接使用 QWidget。
 """
 
-from abc import abstractmethod
 
-from PyQt6.QtCore import Qt, QRectF
-from PyQt6.QtGui import QPainter, QPen, QColor, QBrush
-from PyQt6.QtWidgets import QWidget, QGraphicsDropShadowEffect
+from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import QGraphicsDropShadowEffect, QWidget
 
 
 class RoundedWidget(QWidget):

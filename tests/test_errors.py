@@ -3,20 +3,21 @@ from __future__ import annotations
 """测试错误处理模块。"""
 
 import time
+
 from voicecalendar.services.errors import (
-    VoiceCalendarError,
-    NetworkError,
-    RequestTimeout,
-    RateLimitError,
     APIError,
     ASRError,
-    NLUErrors,
-    ConfigurationError,
     CalendarError,
-    get_user_message,
-    retry_on_failure,
+    ConfigurationError,
+    NetworkError,
+    NLUErrors,
     RateLimiter,
+    RateLimitError,
+    RequestTimeout,
+    VoiceCalendarError,
+    get_user_message,
     parse_http_error,
+    retry_on_failure,
 )
 
 

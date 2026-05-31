@@ -7,56 +7,52 @@ from __future__ import annotations
 
 import math
 from datetime import date
-from typing import Optional
 
 from PyQt6.QtCore import (
-    Qt,
-    QTimer,
-    QThread,
-    pyqtSignal,
-    pyqtSlot,
-    QPointF,
-    QPoint,
-    QPropertyAnimation,
     QEasingCurve,
+    QPointF,
+    QPropertyAnimation,
+    Qt,
+    QThread,
+    QTimer,
+    pyqtSignal,
 )
-from PyQt6.QtGui import QColor, QPainter, QMouseEvent, QBrush, QIcon, QPixmap, QPixmapCache, QAction
+from PyQt6.QtGui import QAction, QBrush, QColor, QIcon, QMouseEvent, QPainter, QPixmap
 from PyQt6.QtWidgets import (
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QFrame,
-    QPushButton,
-    QScrollArea,
-    QStackedWidget,
-    QLineEdit,
-    QComboBox,
     QCheckBox,
-    QSystemTrayIcon,
-    QMenu,
+    QComboBox,
+    QDateEdit,
     QDialog,
     QFormLayout,
-    QTimeEdit,
-    QDateEdit,
-    QTextEdit,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMenu,
+    QPushButton,
+    QScrollArea,
     QSpinBox,
+    QStackedWidget,
+    QSystemTrayIcon,
+    QTextEdit,
+    QTimeEdit,
+    QVBoxLayout,
+    QWidget,
 )
 
 from voicecalendar.config import WindowConfig
-from voicecalendar.core.theme import ThemeManager, ThemeMode
-from voicecalendar.core.resources import ResourceLoader
-from voicecalendar.ui.titlebar import TitleBar
-from voicecalendar.ui.components.toast import ToastManager, ToastType
-from voicecalendar.ui.widgets.waveform import WaveformWidget, StatusIndicator
-from voicecalendar.ui.widgets.skeleton import CircularProgress
-from voicecalendar.models.event import CalendarEvent
-from voicecalendar.services.pipeline import VoiceCalendarPipeline, MockPipeline
-from voicecalendar.services.audio_capture import AudioCapture
-from voicecalendar.services.errors import get_user_message
-from voicecalendar.services.calendar_backend import CalendarBackend
 from voicecalendar.core import settings as settings_module
+from voicecalendar.core.resources import ResourceLoader
+from voicecalendar.core.theme import ThemeManager, ThemeMode
+from voicecalendar.models.event import CalendarEvent
+from voicecalendar.services.audio_capture import AudioCapture
+from voicecalendar.services.calendar_backend import CalendarBackend
+from voicecalendar.services.errors import get_user_message
+from voicecalendar.services.pipeline import MockPipeline, VoiceCalendarPipeline
+from voicecalendar.ui.components.toast import ToastManager, ToastType
+from voicecalendar.ui.titlebar import TitleBar
+from voicecalendar.ui.widgets.waveform import StatusIndicator, WaveformWidget
 
 win_cfg = WindowConfig()
 
@@ -269,11 +265,6 @@ class EventCard(QFrame):
         )
 
         # 初始隐藏按钮
-        hover_style = """
-            QFrame#EventCard:hover QPushButton#CardBtn {
-                visibility: visible;
-            }
-        """
 
         btn_edit = QPushButton("编辑")
         btn_edit.setObjectName("CardBtn")
@@ -482,7 +473,7 @@ class CentralWidget(QWidget):
         self._events: list[CalendarEvent] = []
         self._audio_capture: AudioCapture | None = None
         self._recording_active: bool = False  # 跟踪真实录音是否启动
-        self._worker: Optional[WorkerThread] = None  # 后台工作线程（持有引用防 GC）
+        self._worker: WorkerThread | None = None  # 后台工作线程（持有引用防 GC）
         self._calendar = CalendarBackend()
         self._init_pipeline()
 
@@ -1207,7 +1198,7 @@ class CentralWidget(QWidget):
         # 更新状态指示灯颜色
         asr_cfg = settings_module.get_asr_config()
         has_key = bool(asr_cfg.get("api_key", ""))
-        status_dot = self._settings_page.findChild(QLabel, "status_dot")
+        self._settings_page.findChild(QLabel, "status_dot")
         if has_key:
             self._settings_status.setText("✅ 设置已保存，服务就绪")
             self._settings_status.setStyleSheet("color: #3DDC84; font-size: 12px;")
@@ -1613,8 +1604,8 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self._toast_manager: Optional[ToastManager] = None
-        self._tray_icon: Optional[QSystemTrayIcon] = None
+        self._toast_manager: ToastManager | None = None
+        self._tray_icon: QSystemTrayIcon | None = None
         self._force_quit: bool = False  # 标记是否强制退出（托盘菜单触发）
         self._setup_window()
         self._setup_ui()
@@ -1701,7 +1692,7 @@ class MainWindow(QMainWindow):
             bottom_y = y + h
             arc_w = int(s * 0.6)
             arc_h = int(s * 0.2)
-            arc_x = cx - arc_w // 2
+            cx - arc_w // 2
 
             painter.setBrush(blue)
             # 绘制下半椭圆弧

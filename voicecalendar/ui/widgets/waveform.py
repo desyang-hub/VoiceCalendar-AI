@@ -7,18 +7,14 @@ from __future__ import annotations
 """
 
 import math
-from typing import Optional
 
 from PyQt6.QtCore import (
+    QPointF,
     Qt,
     QTimer,
-    QPropertyAnimation,
-    QEasingCurve,
-    QRectF,
-    QPointF,
     pyqtSignal,
 )
-from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QFontMetrics
+from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QWidget
 
 from voicecalendar.config import AnimationConfig
@@ -297,7 +293,7 @@ class StatusIndicator(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        w, h = self.width(), self.height()
+        _w, h = self.width(), self.height()
         center_y = h // 2
         dot_x = 12
 

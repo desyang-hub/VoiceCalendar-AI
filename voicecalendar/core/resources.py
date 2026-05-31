@@ -8,15 +8,14 @@ from __future__ import annotations
 - 提供 apply_style(widget) 方法一键应用样式
 """
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication
 
 from voicecalendar.config import STYLES_DIR
 
 if TYPE_CHECKING:
-    from voicecalendar.core.theme import ThemeManager
+    pass
 
 
 class ResourceLoader:

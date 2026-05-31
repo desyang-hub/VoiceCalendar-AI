@@ -12,18 +12,18 @@ from __future__ import annotations
 from enum import Enum
 
 from PyQt6.QtCore import (
-    Qt,
-    QPoint,
-    QTimer,
-    QPropertyAnimation,
     QEasingCurve,
-    pyqtSignal,
     QParallelAnimationGroup,
+    QPoint,
+    QPropertyAnimation,
+    Qt,
+    QTimer,
+    pyqtSignal,
 )
 from PyQt6.QtGui import QColor, QPainter, QPainterPath
-from PyQt6.QtWidgets import QWidget, QGraphicsDropShadowEffect, QHBoxLayout, QLabel
+from PyQt6.QtWidgets import QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QWidget
 
-from voicecalendar.config import ToastConfig, AnimationConfig
+from voicecalendar.config import AnimationConfig, ToastConfig
 
 toast_cfg = ToastConfig()
 anim_cfg = AnimationConfig()

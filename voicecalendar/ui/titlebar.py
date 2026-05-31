@@ -13,9 +13,9 @@ from __future__ import annotations
 - 拖拽通过 QMouseEvent 在 MainWindow 上执行 move()
 """
 
-from PyQt6.QtCore import QPoint, Qt, QSize, pyqtSignal
+from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QMouseEvent, QPainter
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from voicecalendar.config import WindowConfig
 
@@ -28,7 +28,7 @@ class TitleBarButton(QPushButton):
     def __init__(
         self,
         icon_text: str,
-        parent: "TitleBar | None" = None,
+        parent: TitleBar | None = None,
         button_type: str = "normal",
     ) -> None:
         super().__init__(parent)
@@ -89,7 +89,7 @@ class TitleBar(QWidget):
         self.setObjectName("TitleBar")
 
         self._is_maximized: bool = False
-        self._drag_start_pos: "QPoint | None" = None
+        self._drag_start_pos: QPoint | None = None
         self._drag_threshold: int = 3
 
         # ── 布局 ──
