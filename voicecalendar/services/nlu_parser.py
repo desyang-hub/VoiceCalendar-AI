@@ -3,6 +3,7 @@ from __future__ import annotations
 """NLU (自然语言理解) 解析服务。
 
 使用 LLM (OpenAI Compatible API) 将自然语言转为结构化日程数据。
+支持 LLM 解析 + 快速时间解析降级。
 
 核心功能:
 - 意图识别 (添加/查询/删除/列出)
@@ -12,6 +13,7 @@ from __future__ import annotations
 
 import os
 import json
+import logging
 from datetime import date, datetime
 from typing import Optional
 from dataclasses import dataclass
@@ -19,6 +21,16 @@ from dataclasses import dataclass
 import openai  # type: ignore[import-not-found]
 
 from voicecalendar.models.event import ParseIntent, CalendarEvent, EventRecurrence
+from voicecalendar.services.errors import (
+    NLUErrors,
+    NetworkError,
+    RequestTimeout,
+    RateLimitError,
+    retry_on_failure,
+    RateLimiter,
+)
+
+logger = logging.getLogger("voicecalendar")
 
 
 # ─────────────────────────────────────────────
@@ -33,9 +45,9 @@ SYSTEM_PROMPT = """\
 你必须且只输出一个 JSON 对象，不要包含任何其他内容。格式如下：
 
 ```json
-{
+{{
     "action": "add|query|delete|list",
-    "event": {
+    "event": {{
         "title": "事件标题",
         "start_date": "YYYY-MM-DD",
         "start_time": "HH:MM",
@@ -45,12 +57,12 @@ SYSTEM_PROMPT = """\
         "recurrence_count": 0,
         "location": "地点",
         "reminder_minutes": 15
-    },
+    }},
     "query_date": "YYYY-MM-DD",
     "query_keyword": "关键词",
     "delete_keyword": "关键词",
     "confidence": 0.95
-}
+}}
 ```
 
 ## 时间归一化规则
@@ -221,11 +233,13 @@ class NLUParser:
     """自然语言理解解析器。
 
     使用 LLM 将自然语言指令转为结构化数据。
+    支持自动重试和快速解析降级。
 
     Args:
         api_key: OpenAI API 密钥
         base_url: API 基础 URL
         model: LLM 模型名称
+        timeout: 请求超时时间（秒）
     """
 
     def __init__(
@@ -233,12 +247,15 @@ class NLUParser:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: str = "gpt-4o",
+        timeout: int = 30,
     ) -> None:
         self._api_key = api_key or os.getenv("OPENAI_API_KEY", "")
         self._base_url = base_url or os.getenv("OPENAI_BASE_URL")
         self._model = model
+        self._timeout = timeout
         self._client: Optional[object] = None
         self._quick_parser = QuickTimeParser()
+        self._rate_limiter = RateLimiter(max_tokens=10, refill_rate=2.0)
 
         self._init_client()
 
@@ -247,12 +264,16 @@ class NLUParser:
         try:
             import openai as _openai
 
-            kwargs: dict = {"api_key": self._api_key}
+            kwargs: dict = {
+                "api_key": self._api_key,
+                "timeout": self._timeout,
+            }
             if self._base_url:
                 kwargs["base_url"] = self._base_url
             self._client = _openai.OpenAI(**kwargs)
-        except Exception:
+        except Exception as e:
             self._client = None
+            logger.error("NLU 客户端初始化失败: %s", e)
 
     @property
     def is_ready(self) -> bool:
@@ -260,6 +281,8 @@ class NLUParser:
 
     def parse(self, text: str, ref_date: Optional[date] = None) -> ParseIntent:
         """解析自然语言指令。
+
+        优先使用 LLM 解析，失败时自动降级到快速解析。
 
         Args:
             text: 用户语音文本
@@ -269,13 +292,24 @@ class NLUParser:
             ParseIntent: 解析结果
         """
         if not self.is_ready:
-            # 使用快速解析作为降级
+            logger.info("LLM 未就绪，使用快速解析降级")
             return self._quick_parse(text, ref_date)
 
-        return self._llm_parse(text, ref_date)
+        try:
+            return self._llm_parse(text, ref_date)
+        except (NetworkError, RequestTimeout, RateLimitError) as e:
+            logger.warning("LLM 解析失败 (%s)，降级到快速解析: %s", type(e).__name__, text)
+            return self._quick_parse(text, ref_date)
+        except NLUErrors as e:
+            logger.error("LLM 解析错误: %s", e)
+            return self._quick_parse(text, ref_date)
+        except Exception as e:
+            logger.error("LLM 解析未知错误: %s，降级到快速解析", e)
+            return self._quick_parse(text, ref_date)
 
+    @retry_on_failure(max_retries=2, base_delay=1.5)
     def _llm_parse(self, text: str, ref_date: Optional[date] = None) -> ParseIntent:
-        """使用 LLM 解析。"""
+        """使用 LLM 解析 — 带自动重试。"""
         ref = ref_date or date.today()
         now = datetime.now()
 
@@ -283,6 +317,10 @@ class NLUParser:
             current_date=ref.isoformat(),
             current_time=now.strftime("%H:%M"),
         )
+
+        # 等待限流器
+        if not self._rate_limiter.wait(timeout=self._timeout):
+            raise RequestTimeout("NLU 请求排队超时")
 
         try:
             assert self._client is not None
@@ -302,8 +340,17 @@ class NLUParser:
 
             return self._build_intent(data, text, ref)
 
+        except json.JSONDecodeError as e:
+            raise NLUErrors(f"LLM 返回格式错误: {e}")
         except Exception as e:
-            return self._quick_parse(text, ref_date)
+            error_str = str(e).lower()
+            if "timed out" in error_str or "timeout" in error_str:
+                raise RequestTimeout("意图解析超时")
+            if "rate" in error_str or "429" in error_str:
+                raise RateLimitError("意图解析请求过于频繁", retry_after=30)
+            if "connection" in error_str or "network" in error_str:
+                raise NetworkError("网络连接失败，无法解析意图")
+            raise NLUErrors(f"意图解析失败: {e}")
 
     def _build_intent(self, data: dict, raw_text: str, ref_date: date) -> ParseIntent:
         """从 LLM 返回的 JSON 构建 ParseIntent。"""
@@ -325,7 +372,7 @@ class NLUParser:
         )
 
         # 构建事件
-        if action == ParseIntent.Action.ADD and "event" in data and data["event"]:
+        if action == ParseIntent.Action.ADD and "event" in data and isinstance(data.get("event"), dict):
             event_data = data["event"]
             intent.event = self._build_event(event_data, ref_date)
 
@@ -370,18 +417,16 @@ class NLUParser:
             end_date = datetime.fromisoformat(data["end_date"]).date()
 
         return CalendarEvent(
-            title=data.get("title", "新事件"),
+            title=data.get("title") or "新事件",
             start_date=start_date,
             start_time=start_time,
             end_date=end_date,
             end_time=end_time,
-            description=data.get("description", ""),
-            recurrence=EventRecurrence(data.get("recurrence", "none"))
-            if data.get("recurrence")
-            else EventRecurrence.NONE,
-            recurrence_count=data.get("recurrence_count", 0),
-            location=data.get("location", ""),
-            reminder_minutes=data.get("reminder_minutes", 15),
+            description=data.get("description") or "",
+            recurrence=EventRecurrence(data.get("recurrence") or "none"),
+            recurrence_count=data.get("recurrence_count") or 0,
+            location=data.get("location") or "",
+            reminder_minutes=data.get("reminder_minutes") if data.get("reminder_minutes") is not None else 15,
         )
 
     def _quick_parse(self, text: str, ref_date: Optional[date] = None) -> ParseIntent:
