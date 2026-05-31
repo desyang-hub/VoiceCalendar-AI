@@ -9,15 +9,14 @@
 from __future__ import annotations
 
 from enum import Enum
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QObject, Qt, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal
 
 from voicecalendar.config import DarkThemeColors, LightThemeColors, dark_colors, light_colors
 
 if TYPE_CHECKING:
-    from voicecalendar.core.resources import ResourceLoader
+    pass
 
 
 class ThemeMode(Enum):
@@ -36,7 +35,7 @@ class ThemeManager(QObject):
 
     theme_changed: pyqtSignal = pyqtSignal(ThemeMode)
 
-    _instance: "ThemeManager | None" = None
+    _instance: ThemeManager | None = None
 
     def __init__(self, parent: object | None = None) -> None:
         super().__init__(parent)
@@ -44,7 +43,7 @@ class ThemeManager(QObject):
         self._colors: LightThemeColors | DarkThemeColors = dark_colors
 
     @classmethod
-    def instance(cls) -> "ThemeManager":
+    def instance(cls) -> ThemeManager:
         """获取单例实例。"""
         if cls._instance is None:
             cls._instance = cls()

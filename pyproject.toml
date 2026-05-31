@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2.5.0",
     "pyyaml>=6.0",
     "loguru>=0.7.0",
+    "sounddevice==0.5.5",
 ]
 
 [project.optional-dependencies]
@@ -45,7 +46,19 @@ target-version = ["py39"]
 [tool.ruff]
 line-length = 100
 target-version = "py39"
+
+[tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
+ignore = [
+    "E402",   # module import not at top of file (条件导入/函数内导入在 PyQt 中很常见)
+    "E501",   # line too long (ruff line-length 已在上方设置，此规则与 line-length 重复)
+    "N802",   # invalid function name (_on_xxx 槽函数命名约定不符合 PEP8)
+    "N818",   # error suffix on exception name (NLUErrors 已有固定命名)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["F401"]  # 测试文件中 unused import 是合理的 (pytest fixtures)
+"voicecalendar/models/**" = ["UP007", "UP037"]  # pydantic 在 Python 3.9 下：X | None 不兼容，前向引用需要引号
 
 [tool.mypy]
 python_version = "3.9"

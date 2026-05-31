@@ -11,12 +11,14 @@ from __future__ import annotations
     wav_path = capture.output_path  # Path to generated .wav file
 """
 
-import wave
 import tempfile
-import os
+import wave
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
-from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import numpy as np
 
 from voicecalendar.config import AudioConfig
 
@@ -62,7 +64,7 @@ class AudioCapture:
 
     def __init__(
         self,
-        output_dir: Optional[Path] = None,
+        output_dir: Path | None = None,
         sample_rate: int = audio_cfg.SAMPLE_RATE,
         channels: int = audio_cfg.CHANNELS,
         sample_width: int = audio_cfg.SAMPLE_WIDTH,
@@ -76,11 +78,11 @@ class AudioCapture:
 
         self._is_recording: bool = False
         self._frames: list[bytes] = []
-        self._segment: Optional[AudioSegment] = None
-        self._output_path: Optional[Path] = None
+        self._segment: AudioSegment | None = None
+        self._output_path: Path | None = None
 
         # RMS 回调 (供波形可视化使用)
-        self._rms_callback: Optional[callable] = None  # type: ignore[name-defined]
+        self._rms_callback: callable | None = None  # type: ignore[name-defined]
 
         # 确保输出目录存在
         self._output_dir.mkdir(parents=True, exist_ok=True)
@@ -90,16 +92,16 @@ class AudioCapture:
         return self._is_recording
 
     @property
-    def output_path(self) -> Optional[Path]:
+    def output_path(self) -> Path | None:
         """生成的 WAV 文件路径。"""
         return self._output_path
 
     @property
-    def segment(self) -> Optional[AudioSegment]:
+    def segment(self) -> AudioSegment | None:
         """当前录制的音频数据。"""
         return self._segment
 
-    def set_rms_callback(self, callback: Optional[callable]) -> None:  # type: ignore[name-defined]
+    def set_rms_callback(self, callback: callable | None) -> None:  # type: ignore[name-defined]
         """设置 RMS 音量回调 (用于波形可视化)。"""
         self._rms_callback = callback
 
@@ -161,10 +163,10 @@ class AudioCapture:
 
     def _audio_callback(
         self,
-        samples: "import numpy as np; np.ndarray",
+        samples: np.ndarray,
         frame_count: int,
-        time_info,
-        status,
+        time_info: Any,
+        status: Any,
     ) -> None:
         """音频数据回调。
 

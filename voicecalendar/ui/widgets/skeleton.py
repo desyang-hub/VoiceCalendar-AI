@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import math
 
-from PyQt6.QtCore import Qt, QTimer, QPointF, pyqtSignal
-from PyQt6.QtGui import QPainter, QColor, QPainterPath, QLinearGradient
+from PyQt6.QtCore import QPointF, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QWidget
 
 
@@ -131,7 +131,7 @@ class CircularProgress(QWidget):
         # 旋转弧段
         painter.setPen(QPen(self._color, line_width, Qt.PenStyle.SolidLine,
                            Qt.PenCapStyle.RoundCap))
-        arc = painter.drawArc(
+        painter.drawArc(
             cx - radius - line_width, cy - radius - line_width,
             (radius + line_width) * 2, (radius + line_width) * 2,
             int(self._angle * 180 / math.pi * 16),

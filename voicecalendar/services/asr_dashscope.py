@@ -40,17 +40,15 @@ import base64
 import logging
 import os
 import threading
-import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from voicecalendar.services.errors import (
     ASRError,
     ConfigurationError,
     NetworkError,
-    RequestTimeout,
     RateLimiter,
+    RequestTimeout,
 )
 
 logger = logging.getLogger("voicecalendar")
@@ -84,8 +82,8 @@ class DashScopeASR:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        model: Optional[str] = None,
+        api_key: str | None = None,
+        model: str | None = None,
         timeout: int = 60,
     ) -> None:
         self._api_key = api_key or os.getenv("DASHSCOPE_API_KEY", "") or os.getenv("OPENAI_API_KEY", "")

@@ -1,19 +1,21 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """NLU 意图解析测试脚本 - 使用真实 LLM 验证各种语音输入。
 
 用法:
-    python test_nlu.py          # 使用 settings.json 中的配置
-    python test_nlu.py --model qwen-plus  # 指定模型
-    python test_nlu.py --debug   # 打印原始 LLM 返回
+    python tests/test_nlu.py          # 使用 settings.json 中的配置
+    python tests/test_nlu.py --model qwen-plus  # 指定模型
+    python tests/test_nlu.py --debug   # 打印原始 LLM 返回
 """
 
-import sys
-import json
 import argparse
+import json
+import sys
 from datetime import date
+from pathlib import Path
 
-sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent))
+# 将项目根目录加入 sys.path（tests/ 的父目录）
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from voicecalendar.core import settings as settings_module
 from voicecalendar.services.nlu_parser import NLUParser, ParseIntent
 
@@ -168,8 +170,9 @@ def main():
         print("=" * 70)
         print("原始 LLM 响应调试")
         print("=" * 70)
-        from voicecalendar.services.nlu_parser import SYSTEM_PROMPT
         import datetime
+
+        from voicecalendar.services.nlu_parser import SYSTEM_PROMPT
 
         for inp, expect in [("明天下午三点开会", "add"),
                              ("今天有什么安排", "query"),

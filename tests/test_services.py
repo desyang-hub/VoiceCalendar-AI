@@ -6,10 +6,9 @@ from pathlib import Path
 
 from voicecalendar.models.event import CalendarEvent, ParseIntent
 from voicecalendar.services.asr_service import MockASRService, TranscriptionResult
-from voicecalendar.services.nlu_parser import NLUParser, MockNLUParser, QuickTimeParser
 from voicecalendar.services.calendar_backend import CalendarBackend
-from voicecalendar.services.pipeline import VoiceCalendarPipeline, MockPipeline, PipelineResult
-
+from voicecalendar.services.nlu_parser import MockNLUParser, NLUParser, QuickTimeParser
+from voicecalendar.services.pipeline import MockPipeline, PipelineResult, VoiceCalendarPipeline
 
 # ═════════════════════════════════════════════
 # QuickTimeParser 测试

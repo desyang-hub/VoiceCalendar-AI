@@ -36,7 +36,7 @@ def _install_stderr_filter() -> None:
     UpdateLayeredWindowIndirect failed 警告，不影响功能。
     使用 Qt 自带的消息处理器拦截，而非 Python stderr 包装器。
     """
-    from PyQt6.QtCore import qInstallMessageHandler, QtMsgType
+    from PyQt6.QtCore import QtMsgType, qInstallMessageHandler
 
     def _qt_msg_handler(msg_type, context, message):
         """Qt 消息处理器 — 过滤系统级无关警告。"""
@@ -50,12 +50,12 @@ def _install_stderr_filter() -> None:
 
     qInstallMessageHandler(_qt_msg_handler)
 
-from PyQt6.QtCore import Qt, QCoreApplication
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
-from voicecalendar.core.theme import ThemeManager, ThemeMode
 from voicecalendar.core.resources import ResourceLoader
+from voicecalendar.core.theme import ThemeManager, ThemeMode
 from voicecalendar.ui.main_window import MainWindow
 
 # ── 全局日志配置 ──

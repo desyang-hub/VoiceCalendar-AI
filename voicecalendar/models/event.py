@@ -5,7 +5,7 @@ from __future__ import annotations
 定义语音识别后解析出的结构化日程数据。
 """
 
-from datetime import datetime, date, time
+from datetime import date, datetime, time
 from enum import Enum
 from typing import Optional
 
@@ -107,8 +107,8 @@ class ParseIntent(BaseModel):
         LIST = "list"
         UNKNOWN = "unknown"
 
-    action: "ParseIntent.Action" = Action.UNKNOWN
-    event: Optional[CalendarEvent] = None
+    action: ParseIntent.Action = Action.UNKNOWN
+    event: Optional["CalendarEvent"] = None
     query_date: Optional[date] = None
     query_keyword: str = ""
     delete_keyword: str = ""

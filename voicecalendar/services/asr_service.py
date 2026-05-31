@@ -11,20 +11,19 @@ from __future__ import annotations
     print(text)  # "明天下午三点开会"
 """
 
-import os
 import logging
-from pathlib import Path
-from typing import Optional
+import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from voicecalendar.services.errors import (
     ASRError,
-    ConfigurationError,
     NetworkError,
+    RateLimiter,
+    RateLimitError,
     RequestTimeout,
     parse_http_error,
     retry_on_failure,
-    RateLimiter,
 )
 
 logger = logging.getLogger("voicecalendar")
@@ -58,8 +57,8 @@ class ASRService:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
         model: str = "whisper-1",
         language: str = "zh",
         max_retries: int = 3,
@@ -71,7 +70,7 @@ class ASRService:
         self._language = language
         self._max_retries = max_retries
         self._timeout = timeout
-        self._client: Optional[object] = None
+        self._client: object | None = None
         self._rate_limiter = RateLimiter(max_tokens=10, refill_rate=2.0)
         self._error: str = ""
 

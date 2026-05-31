@@ -9,9 +9,8 @@ from __future__ import annotations
 - 支持 API 限流检测与自动等待
 """
 
-import time
 import logging
-from abc import ABC
+import time
 from functools import wraps
 from typing import Any, Callable
 

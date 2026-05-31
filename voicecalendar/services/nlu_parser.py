@@ -11,23 +11,19 @@ from __future__ import annotations
 - 事件结构化提取
 """
 
-import os
 import json
 import logging
+import os
 from datetime import date, datetime
-from typing import Optional
-from dataclasses import dataclass
 
-import openai  # type: ignore[import-not-found]
-
-from voicecalendar.models.event import ParseIntent, CalendarEvent, EventRecurrence
+from voicecalendar.models.event import CalendarEvent, EventRecurrence, ParseIntent
 from voicecalendar.services.errors import (
-    NLUErrors,
     NetworkError,
-    RequestTimeout,
-    RateLimitError,
-    retry_on_failure,
+    NLUErrors,
     RateLimiter,
+    RateLimitError,
+    RequestTimeout,
+    retry_on_failure,
 )
 
 logger = logging.getLogger("voicecalendar")
@@ -103,7 +99,7 @@ class QuickTimeParser:
     """轻量级时间解析器 (不依赖 LLM，用于简单场景)。"""
 
     @staticmethod
-    def parse_relative(text: str, ref_date: Optional[date] = None) -> Optional[date]:
+    def parse_relative(text: str, ref_date: date | None = None) -> date | None:
         """解析相对时间表达。
 
         Args:
@@ -169,7 +165,7 @@ class QuickTimeParser:
         return None
 
     @staticmethod
-    def parse_time(text: str) -> Optional[tuple[int, int]]:
+    def parse_time(text: str) -> tuple[int, int] | None:
         """解析时间表达为 (hour, minute)。
 
         Args:
@@ -194,7 +190,7 @@ class QuickTimeParser:
             "零": 0,
         }
 
-        def parse_cn_digit(s: str) -> Optional[int]:
+        def parse_cn_digit(s: str) -> int | None:
             """解析中文数字。"""
             if s.isdigit():
                 return int(s)
@@ -244,8 +240,8 @@ class NLUParser:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
         model: str = "gpt-4o",
         timeout: int = 30,
     ) -> None:
@@ -253,7 +249,7 @@ class NLUParser:
         self._base_url = base_url or os.getenv("OPENAI_BASE_URL")
         self._model = model
         self._timeout = timeout
-        self._client: Optional[object] = None
+        self._client: object | None = None
         self._quick_parser = QuickTimeParser()
         self._rate_limiter = RateLimiter(max_tokens=10, refill_rate=2.0)
 
@@ -279,7 +275,7 @@ class NLUParser:
     def is_ready(self) -> bool:
         return self._client is not None and self._api_key != ""
 
-    def parse(self, text: str, ref_date: Optional[date] = None) -> ParseIntent:
+    def parse(self, text: str, ref_date: date | None = None) -> ParseIntent:
         """解析自然语言指令。
 
         优先使用 LLM 解析，失败时自动降级到快速解析。
@@ -308,7 +304,7 @@ class NLUParser:
             return self._quick_parse(text, ref_date)
 
     @retry_on_failure(max_retries=2, base_delay=1.5)
-    def _llm_parse(self, text: str, ref_date: Optional[date] = None) -> ParseIntent:
+    def _llm_parse(self, text: str, ref_date: date | None = None) -> ParseIntent:
         """使用 LLM 解析 — 带自动重试。"""
         ref = ref_date or date.today()
         now = datetime.now()
@@ -429,7 +425,7 @@ class NLUParser:
             reminder_minutes=data.get("reminder_minutes") if data.get("reminder_minutes") is not None else 15,
         )
 
-    def _quick_parse(self, text: str, ref_date: Optional[date] = None) -> ParseIntent:
+    def _quick_parse(self, text: str, ref_date: date | None = None) -> ParseIntent:
         """快速解析 (不依赖 LLM)。"""
         ref = ref_date or date.today()
 
@@ -493,7 +489,7 @@ class MockNLUParser:
         ]
         self._index = 0
 
-    def parse(self, text: str, ref_date: Optional[date] = None) -> ParseIntent:
+    def parse(self, text: str, ref_date: date | None = None) -> ParseIntent:
         result = self._test_results[self._index % len(self._test_results)]
         self._index += 1
         return result

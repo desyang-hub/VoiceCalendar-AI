@@ -1,7 +1,8 @@
 """数据模型测试。"""
 
 from datetime import date, time
-from voicecalendar.models.event import CalendarEvent, ParseIntent, EventRecurrence
+
+from voicecalendar.models.event import CalendarEvent, EventRecurrence, ParseIntent
 
 
 def test_calendar_event_basic() -> None:

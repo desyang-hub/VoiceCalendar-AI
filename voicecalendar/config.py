@@ -5,7 +5,7 @@ from __future__ import annotations
 所有硬编码的魔法数字都应集中在此模块中维护。
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 # ─────────────────────────────────────────────
@@ -202,7 +202,7 @@ class APIConfig:
     request_timeout: int = 30  # seconds
 
     @classmethod
-    def from_env(cls) -> "APIConfig":
+    def from_env(cls) -> APIConfig:
         """从环境变量加载配置。"""
         import os
 

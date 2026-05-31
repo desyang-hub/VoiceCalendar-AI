@@ -6,15 +6,13 @@ from __future__ import annotations
 """
 
 import os
+from dataclasses import dataclass
+from datetime import date, timedelta
 from pathlib import Path
-from datetime import date, time, timedelta
-from typing import Optional
-from dataclasses import dataclass, field
 
 import ics  # type: ignore[import-not-found]
 
 from voicecalendar.models.event import CalendarEvent, EventRecurrence
-
 
 # ICS 重复规则映射
 RECURRENCE_MAP = {
@@ -32,7 +30,7 @@ class CalendarOperationResult:
 
     success: bool
     message: str
-    file_path: Optional[str] = None
+    file_path: str | None = None
     event_count: int = 0
 
 
@@ -48,7 +46,7 @@ class CalendarBackend:
         storage_dir: 事件存储目录 (默认 ~/.voicecalendar/events)
     """
 
-    def __init__(self, storage_dir: Optional[str] = None) -> None:
+    def __init__(self, storage_dir: str | None = None) -> None:
         self._storage_dir = Path(storage_dir) if storage_dir else Path.home() / ".voicecalendar" / "events"
         self._storage_dir.mkdir(parents=True, exist_ok=True)
         self._default_ics_path = self._storage_dir / "calendar.ics"
@@ -56,7 +54,7 @@ class CalendarBackend:
     def create_ics_file(
         self,
         events: list[CalendarEvent],
-        output_path: Optional[str | Path] = None,
+        output_path: str | Path | None = None,
     ) -> CalendarOperationResult:
         """从事件列表生成 ICS 文件。
 
@@ -124,7 +122,7 @@ class CalendarBackend:
             return []
 
         try:
-            with open(self._default_ics_path, "r", encoding="utf-8") as f:
+            with open(self._default_ics_path, encoding="utf-8") as f:
                 calendar = ics.Calendar(f.read())
 
             events = []
@@ -166,7 +164,7 @@ class CalendarBackend:
 
     def query_events(
         self,
-        query_date: Optional[date] = None,
+        query_date: date | None = None,
         keyword: str = "",
         days: int = 1,
     ) -> list[CalendarEvent]:
@@ -213,7 +211,7 @@ class CalendarBackend:
         monday = today - timedelta(days=today.weekday())
         return self.query_events(query_date=monday, days=7)
 
-    def open_in_calendar(self, ics_path: Optional[str] = None) -> None:
+    def open_in_calendar(self, ics_path: str | None = None) -> None:
         """用系统默认日历应用打开 ICS 文件。
 
         Args:
@@ -233,7 +231,7 @@ class CalendarBackend:
 
     # ── 内部方法 ──
 
-    def _event_to_vcalendar(self, event: CalendarEvent) -> "ics.Event":
+    def _event_to_vcalendar(self, event: CalendarEvent) -> ics.Event:
         """CalendarEvent → ics.Event。"""
         from ics.event import Event as ICS_Event
 
@@ -261,9 +259,10 @@ class CalendarBackend:
 
         return vevent
 
-    def _vcalendar_to_event(self, vevent: "ics.Event") -> CalendarEvent:
+    def _vcalendar_to_event(self, vevent: ics.Event) -> CalendarEvent:
         """ics.Event → CalendarEvent。"""
-        from datetime import date as _date, time as _time
+        from datetime import date as _date
+        from datetime import time as _time
 
         start_dt = vevent.begin if hasattr(vevent.begin, "hour") else vevent.begin
         end_dt = vevent.end if hasattr(vevent.end, "hour") else start_dt
