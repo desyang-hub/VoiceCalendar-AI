@@ -137,9 +137,14 @@ class AudioCapture:
         if not self._is_recording:
             raise AudioCaptureError("当前未在录制中")
 
+        import sounddevice as sd
+
         try:
             if hasattr(self, "_stream"):
+                # stop() 停止接收新数据，等待当前回调完成
                 self._stream.stop()
+                # 等待所有回调数据完全写入 _frames（避免丢失尾帧）
+                sd.sleep(200)
                 self._stream.close()
         except Exception:
             pass

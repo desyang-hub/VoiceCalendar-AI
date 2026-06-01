@@ -407,10 +407,12 @@ class NLUParser:
             parts = data["end_time"].split(":")
             end_time = time(int(parts[0]), int(parts[1]) if len(parts) > 1 else 0)
 
-        # 结束日期
+        # 结束日期 — 有 end_time 但无 end_date 时默认同 start_date
         end_date = None
         if "end_date" in data and data["end_date"]:
             end_date = datetime.fromisoformat(data["end_date"]).date()
+        if end_time is not None and end_date is None:
+            end_date = start_date
 
         return CalendarEvent(
             title=data.get("title") or "新事件",

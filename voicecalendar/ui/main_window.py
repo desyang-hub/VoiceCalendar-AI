@@ -185,13 +185,15 @@ class EventCard(QFrame):
         time_label.setStyleSheet(f"color: {color}; font-size: 13px; font-weight: 700;")
         time_column.addWidget(time_label)
 
-        if event.end_time:
-            duration = (
-                (event.start_date.toordinal() + event.start_time.hour * 24 + event.start_time.minute)
-                - (event.end_date.toordinal() + event.end_time.hour * 24 + event.end_time.minute)
-            )
-            mins = abs(duration) * 60 if event.end_date == event.start_date else 60
-            duration_label = QLabel(f"{mins}min")
+        if event.end_time and event.end_date is not None:
+            end_date = event.end_date if event.end_date else event.start_date
+            start_total = event.start_date.toordinal() * 1440 + event.start_time.hour * 60 + event.start_time.minute
+            end_total = end_date.toordinal() * 1440 + event.end_time.hour * 60 + event.end_time.minute
+            mins = max(1, abs(end_total - start_total))
+            if mins >= 60:
+                duration_label = QLabel(f"{mins // 60}h{mins % 60}m")
+            else:
+                duration_label = QLabel(f"{mins}min")
             duration_label.setStyleSheet("color: #6B7280; font-size: 10px;")
             time_column.addWidget(duration_label)
         else:

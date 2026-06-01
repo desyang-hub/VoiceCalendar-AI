@@ -171,7 +171,9 @@ class WaveformWidget(QWidget):
 
             painter.setBrush(QBrush(color))
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(x, y, bar_width, bar_height, bar_width / 2, bar_width / 2)
+            painter.drawRoundedRect(
+                int(x), int(y), int(bar_width), int(bar_height), bar_width / 2, bar_width / 2
+            )
 
     def _draw_wave(self, painter: QPainter, w: int, h: int) -> None:
         """绘制平滑波形。

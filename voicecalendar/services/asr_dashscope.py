@@ -131,6 +131,8 @@ class DashScopeASR:
                 error_message="DashScope API Key 未配置",
             )
 
+        logger.info("audio path: %s", audio_path)
+
         audio_file = Path(audio_path)
         if not audio_file.exists():
             return ASRResult(
